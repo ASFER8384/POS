@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: temp-pos
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: POS_BASE_URL
+        value: https://restaurant-whatsapp-service.onrender.com
+      - key: POS_API_KEY
+        sync: false          # set in the Render dashboard after minting the key
+      - key: POS_WEBHOOK_SECRET
+        sync: false          # set in the Render dashboard (same secret as the store)
+      - key: POS_AUTO_ADVANCE
+        value: "true"
