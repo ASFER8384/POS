@@ -161,6 +161,15 @@ async def api_store() -> JSONResponse:
     return _passthrough(await _platform("GET", "/api/v1/partner/store"))
 
 
+@app.get("/api/orders")
+async def api_orders() -> JSONResponse:
+    """Backlog pull: current confirmed orders from the platform, so the board is
+    populated even after a redeploy wiped the in-memory webhook tickets."""
+    return _passthrough(
+        await _platform("GET", "/api/v1/partner/orders?unacked_only=false&limit=100")
+    )
+
+
 @app.get("/api/customers")
 async def api_customers() -> JSONResponse:
     return _passthrough(await _platform("GET", "/api/v1/partner/customers?limit=200"))
@@ -328,9 +337,21 @@ function orderCard(t){
    +'</div></div>';
 }
 let LAST_ORDERS=[];
+function apiToTicket(o){
+  return {order_id:o.order_id,order_number:o.order_number,status:o.status,
+    customer:o.customer||{},items:o.items||[],total:o.total,cod_due:o.cod_due,
+    address:o.address||{},rider:null,delivery_status:null,cod_collected:null,late:false};
+}
 async function loadOrders(){
-  const r=await fetch('/state');const j=await r.json();LAST_ORDERS=j.orders||[];
-  setConn(true);
+  // Live webhook tickets (rich: rider/delivery updates) overlaid on the API
+  // backlog (survives redeploys). Webhook version wins when both exist.
+  let webhook=[],backlog=[];
+  try{webhook=((await (await fetch('/state')).json()).orders)||[];setConn(true);}catch(e){setConn(false);}
+  try{backlog=((await (await fetch('/api/orders')).json()).items||[]).map(apiToTicket);}catch(e){}
+  const byId={};
+  backlog.forEach(t=>byId[t.order_id]=t);
+  webhook.forEach(t=>byId[t.order_id]=t);
+  LAST_ORDERS=Object.values(byId).sort((a,b)=>b.order_id-a.order_id);
   const active=LAST_ORDERS.filter(t=>!['delivered','cancelled'].includes(t.status||'confirmed')).length;
   setCount('c-orders',active);
   if(TAB==='orders'){
