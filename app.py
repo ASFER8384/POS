@@ -163,11 +163,19 @@ async def api_store() -> JSONResponse:
 
 @app.get("/api/orders")
 async def api_orders() -> JSONResponse:
-    """Backlog pull: current confirmed orders from the platform, so the board is
-    populated even after a redeploy wiped the in-memory webhook tickets."""
+    """Full order list from the platform (all statuses incl. history), so the board
+    is populated even after a redeploy wiped the in-memory webhook tickets."""
     return _passthrough(
-        await _platform("GET", "/api/v1/partner/orders?unacked_only=false&limit=100")
+        await _platform(
+            "GET", "/api/v1/partner/orders?status=all&unacked_only=false&limit=200"
+        )
     )
+
+
+@app.get("/api/riders")
+async def api_riders() -> JSONResponse:
+    """Full rider roster (every rider, not just those on a live delivery)."""
+    return _passthrough(await _platform("GET", "/api/v1/partner/riders"))
 
 
 @app.get("/api/customers")
@@ -419,12 +427,26 @@ async function renderCustomers(){
 }
 
 // ---- RIDERS ----
+let ROSTER=[];
+async function loadRiders(){
+  try{ROSTER=((await (await fetch('/api/riders')).json()).items)||[];}catch(e){ROSTER=[];}
+  if(TAB==='riders')renderRiders();
+}
 function renderRiders(){
-  const riders=LAST_ORDERS.filter(t=>t.rider).map(t=>({name:t.rider.name,phone:t.rider.phone,order:t.order_number||t.order_id,status:t.delivery_status,cod:t.cod_collected,late:t.late}));
-  document.getElementById('meta').textContent=riders.length+' active delivery(ies)';
-  document.getElementById('view').innerHTML = riders.length? '<table><thead><tr><th>Rider</th><th>Phone</th><th>Order</th><th>Status</th><th>COD collected</th></tr></thead><tbody>'
-    +riders.map(r=>'<tr><td>'+esc(r.name)+(r.late?' ⚠️':'')+'</td><td>'+esc(r.phone||'')+'</td><td>#'+esc(r.order)+'</td><td>'+badge(r.status||'assigned')+'</td><td>'+(r.cod!=null?money(r.cod):'—')+'</td></tr>').join('')
-    +'</tbody></table>' : '<div class="empty">No riders on delivery right now.</div>';
+  // Full roster, with any live delivery from the order tickets overlaid by phone.
+  const live={};
+  LAST_ORDERS.filter(t=>t.rider&&t.rider.phone).forEach(t=>{live[t.rider.phone]={order:t.order_number||t.order_id,status:t.delivery_status,cod:t.cod_collected,late:t.late};});
+  document.getElementById('meta').textContent=ROSTER.length+' rider(s) · '+Object.keys(live).length+' on delivery';
+  if(!ROSTER.length){document.getElementById('view').innerHTML='<div class="empty">No riders registered for this store.</div>';return;}
+  document.getElementById('view').innerHTML='<table><thead><tr><th>Rider</th><th>Phone</th><th>Duty</th><th>Status</th><th>Current order</th><th>Deliveries</th></tr></thead><tbody>'
+    +ROSTER.map(r=>{const l=live[r.phone];
+      return '<tr><td>'+esc(r.name)+(l&&l.late?' ⚠️':'')+'</td><td>'+esc(r.phone)+'</td>'
+        +'<td>'+(r.on_duty?'🟢 on':'⚪ off')+'</td>'
+        +'<td>'+badge(l?(l.status||'on_delivery'):r.status)+'</td>'
+        +'<td>'+(l?('#'+esc(l.order)+(l.cod!=null?(' · COD '+money(l.cod)):'')):'—')+'</td>'
+        +'<td>'+(r.total_deliveries||0)+'</td></tr>';
+    }).join('')
+    +'</tbody></table>';
 }
 
 // ---- SETTINGS ----
@@ -453,11 +475,11 @@ function render(){
   if(TAB==='orders')loadOrders();
   else if(TAB==='chat'){renderChat();loadConvs();}
   else if(TAB==='customers')renderCustomers();
-  else if(TAB==='riders'){renderRiders();}
+  else if(TAB==='riders'){renderRiders();loadRiders();}
   else if(TAB==='settings')renderSettings();
 }
 // polling loops
 loadOrders();loadConvs();render();
 setInterval(loadOrders,3000);
-setInterval(()=>{loadConvs();if(TAB==='chat'&&ACTIVE_CONV!=null)loadThread();},3000);
+setInterval(()=>{loadConvs();if(TAB==='chat'&&ACTIVE_CONV!=null)loadThread();if(TAB==='riders')loadRiders();},3000);
 </script></body></html>"""
