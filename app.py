@@ -118,6 +118,18 @@ async def receive(request: Request) -> Response:
             t["rider"] = data.get("rider") or t.get("rider")
         elif event == "order.late":
             t["late"] = True
+        elif event == "order.cancelled":
+            t["status"] = "cancelled"
+            t["delivery_status"] = None
+        elif event == "order.confirmed":
+            # Defensive: some deployments emit a distinct confirm event.
+            t["status"] = data.get("status", "confirmed")
+        else:
+            # Any other event that carries a status field — keep the ticket in
+            # sync so we never show a stale status the platform has moved past.
+            st = data.get("status")
+            if st:
+                t["status"] = st
     return Response(status_code=200, content="ok")
 
 
@@ -420,15 +432,33 @@ function apiToTicket(o){
     customer:o.customer||{},items:o.items||[],total:o.total,cod_due:o.cod_due,
     address:o.address||{},rider:null,delivery_status:null,cod_collected:null,late:false};
 }
+// Status precedence: a further-along / terminal status must never be masked by a
+// stale one. The platform DB (backlog) is authoritative for the lifecycle status;
+// webhook tickets add live rider/delivery richness. If a webhook was missed
+// (delivery failed after retries), the backlog still carries the true status.
+var STATUS_RANK={confirmed:1,preparing:2,ready:3,assigned:4,picked_up:5,delivered:6,cancelled:6};
+function rank(s){return STATUS_RANK[s]||0;}
 async function loadOrders(){
   // Live webhook tickets (rich: rider/delivery updates) overlaid on the API
-  // backlog (survives redeploys). Webhook version wins when both exist.
+  // backlog (survives redeploys). Rich fields come from the webhook; the STATUS
+  // is whichever source is further along, so a cancellation/delivery always wins.
   let webhook=[],backlog=[];
   try{webhook=((await (await fetch('/state')).json()).orders)||[];setConn(true);}catch(e){setConn(false);}
   try{backlog=((await (await fetch('/api/orders')).json()).items||[]).map(apiToTicket);}catch(e){}
   const byId={};
   backlog.forEach(t=>byId[t.order_id]=t);
-  webhook.forEach(t=>byId[t.order_id]=t);
+  webhook.forEach(w=>{
+    const b=byId[w.order_id];
+    if(!b){byId[w.order_id]=w;return;}
+    const merged=Object.assign({},b,{
+      rider:w.rider||b.rider,
+      delivery_status:w.delivery_status||b.delivery_status,
+      cod_collected:w.cod_collected!=null?w.cod_collected:b.cod_collected,
+      late:w.late||b.late
+    });
+    merged.status=rank(w.status)>=rank(b.status)?(w.status||b.status):b.status;
+    byId[w.order_id]=merged;
+  });
   LAST_ORDERS=Object.values(byId).sort((a,b)=>b.order_id-a.order_id);
   const active=LAST_ORDERS.filter(t=>!['delivered','cancelled'].includes(t.status||'confirmed')).length;
   setCount('c-orders',active);
