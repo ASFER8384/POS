@@ -312,7 +312,22 @@ _PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
  .setgrid input,.setgrid textarea{background:var(--inset);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px;width:100%;font-family:inherit}
  .setgrid textarea{font-family:ui-monospace,Menlo,monospace;resize:vertical}
  .savebtn{border:0;border-radius:8px;background:var(--accent);color:#04222e;font-weight:700;padding:9px 18px;cursor:pointer;font-family:inherit;font-size:13px}
- h3.sec{margin:20px 0 12px;font-size:14px}
+ h3.sec{margin:24px 0 6px;font-size:14px;border-top:1px solid var(--border);padding-top:16px}
+ h3.sec:first-of-type{border-top:0;padding-top:0}
+ h4.grp{margin:16px 0 8px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+ .secblurb{color:var(--muted);font-size:12px;margin:0 0 12px}
+ .shint{color:var(--muted);font-size:11px;margin-top:3px;max-width:520px}
+ .setgrid select{background:var(--inset);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px;width:100%;font-family:inherit}
+ .tierrow{display:grid;grid-template-columns:1fr 1fr 90px 32px;gap:8px;align-items:center;margin-bottom:8px;max-width:520px}
+ .tierrow .band{color:var(--muted);font-size:11px}
+ .dayrow{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;margin-bottom:6px;max-width:520px}
+ .dayrow .times{display:flex;gap:8px;align-items:center}
+ .dayrow input[type=time]{background:var(--inset);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit}
+ .miniadd{background:none;border:1px dashed var(--border);color:var(--accent);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:12px;font-family:inherit;margin-top:4px}
+ .minix{background:#7f1d1d;color:#fecaca;border:0;border-radius:6px;cursor:pointer;font-weight:700}
+ .chips{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}
+ .chip{font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit}
+ .chip:hover{border-color:var(--accent);color:var(--accent)}
  .flash{position:fixed;bottom:16px;right:16px;background:var(--surface);border:1px solid var(--border);padding:10px 14px;border-radius:8px;font-size:13px;opacity:0;transition:.3s}
  .hide{display:none!important}
 </style></head><body>
@@ -470,66 +485,225 @@ function renderRiders(){
     +'</tbody></table>';
 }
 
-// ---- SETTINGS (full read + update via /api/v1/partner/settings) ----
-function setField(id,val,type){
-  if(type==='bool')return '<input id="'+id+'" data-skey="'+id.slice(2)+'" data-stype="bool" type="checkbox" '+(val?'checked':'')+' style="width:18px;height:18px">';
-  if(type==='json')return '<textarea id="'+id+'" data-skey="'+id.slice(2)+'" data-stype="json" rows="4">'+esc(JSON.stringify(val,null,2))+'</textarea>';
-  return '<input id="'+id+'" data-skey="'+id.slice(2)+'" data-stype="'+type+'" value="'+esc(val==null?'':val)+'">';
+// ---- SETTINGS — fixed form, mirrors the ops dashboard (always shows every
+//      field with sensible defaults; secrets/token never touched). ----
+var SS=null;
+var LDEF={enabled:false,earn_rate:0.05,earn_max_per_order_aed:20,credit_ttl_days:90,
+  tiers:{gold:{min_orders:5,min_spend_aed:300,max_recency_days:30},
+         silver:{min_orders:3,min_spend_aed:120,max_recency_days:60},
+         bronze:{min_orders:2,min_spend_aed:0,max_recency_days:90}},
+  tier_rewards:{gold:{discount_aed:25,every_n_orders:5},silver:{discount_aed:10,every_n_orders:6},bronze:{discount_aed:0,every_n_orders:0}},
+  demotion_grace_days:30,scope_includes_catalog:true};
+var SDEF={
+  max_orders_per_batch:3,max_item_qty:10,
+  cart_reminder_enabled:true,cart_recovery_minutes:15,cart_expiry_minutes:60,
+  resale:{enabled:true,discount_type:'percent',discount_value:30,max_age_minutes:30},
+  loyalty:LDEF,
+  delivery_fee_tiers:[{max_km:3,fee_aed:0},{max_km:5,fee_aed:5},{max_km:10,fee_aed:10}],
+  dispatch_engine:'greedy',default_prep_minutes:15,prep_dispatch_lead_min:8,
+  batch_expedite_radius_km:1.5,batch_proximity_km:1.0,batch_max_detour_km:0,
+  batch_hold_seconds:0,sla_buffer_per_order_minutes:10,delivery_zones:[],
+  open_hours:{tz:'Asia/Dubai',days:{}}
+};
+var DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+var LTIERS=[['gold','🥇 Gold'],['silver','🥈 Silver'],['bronze','🥉 Bronze']];
+var DPRE={
+  slaSafe:{dispatch_engine:'ortools',batch_proximity_km:1.5,batch_max_detour_km:0.5,batch_hold_seconds:120,sla_buffer_per_order_minutes:10},
+  dense:{dispatch_engine:'ortools',batch_proximity_km:2.0,batch_max_detour_km:0.8,batch_hold_seconds:150,sla_buffer_per_order_minutes:10},
+  suburban:{dispatch_engine:'ortools',batch_proximity_km:3.0,batch_max_detour_km:1.5,batch_hold_seconds:120,sla_buffer_per_order_minutes:10},
+  conservative:{dispatch_engine:'greedy',batch_proximity_km:1.0,batch_max_detour_km:0,batch_hold_seconds:0,sla_buffer_per_order_minutes:10}
+};
+function isObj(v){return v!==null&&typeof v==='object'&&!Array.isArray(v)}
+function deepMerge(def,val){
+  if(!isObj(def))return (val===undefined?def:val);
+  var out={},k;for(k in def)out[k]=def[k];
+  if(isObj(val))for(k in val)out[k]=isObj(def[k])?deepMerge(def[k],val[k]):val[k];
+  return out;
 }
+function setPath(path,val,cast){
+  if(cast==='int'){val=parseInt(val,10);if(isNaN(val))return;}
+  else if(cast==='num'){val=parseFloat(val);if(isNaN(val))return;}
+  else if(cast==='bool')val=!!val;
+  var p=path.split('.'),o=SS.s,i;
+  for(i=0;i<p.length-1;i++)o=o[p[i]];
+  o[p[p.length-1]]=val;
+}
+// input builders
+function iNum(path,val,cast,step){return '<input type="number" value="'+esc(val)+'"'+(step?' step="'+step+'"':'')+' oninput="setPath(\''+path+'\',this.value,\''+cast+'\')">';}
+function iChk(path,val){return '<input type="checkbox" '+(val?'checked':'')+' style="width:18px;height:18px" onchange="setPath(\''+path+'\',this.checked,\'bool\')">';}
+function iSel(path,val,opts){var o='';opts.forEach(function(op){o+='<option value="'+op[0]+'"'+(String(val)===String(op[0])?' selected':'')+'>'+esc(op[1])+'</option>';});return '<select onchange="setPath(\''+path+'\',this.value)">'+o+'</select>';}
+function grid(rows){return '<div class="setgrid">'+rows+'</div>';}
+function fRow(label,input,hint){return '<label class="k">'+esc(label)+'</label><div>'+input+(hint?'<div class="shint">'+esc(hint)+'</div>':'')+'</div>';}
+function sec(title,blurb,body){return '<h3 class="sec">'+esc(title)+'</h3>'+(blurb?'<p class="secblurb">'+esc(blurb)+'</p>':'')+body;}
+
+// fee tiers
+function setTier(i,f,v){SS.s.delivery_fee_tiers[i][f]=parseFloat(v)||0;}
+function addTier(){var t=SS.s.delivery_fee_tiers,last=t.length?t[t.length-1].max_km:0;t.push({max_km:last+1,fee_aed:0});drawSettings();}
+function rmTier(i){SS.s.delivery_fee_tiers.splice(i,1);drawSettings();}
+// delivery zones
+function addZone(){SS.s.delivery_zones.push({name:'Zone '+(SS.s.delivery_zones.length+1),center_lat:Number(SS.lat)||25.2,center_lng:Number(SS.lng)||55.2,radius_km:2.5});drawSettings();}
+function setZone(i,f,v){SS.s.delivery_zones[i][f]=(f==='name')?v:(parseFloat(v)||0);}
+function rmZone(i){SS.s.delivery_zones.splice(i,1);drawSettings();}
+// hours
+function setNoHours(b){SS.noFixedHours=b;drawSettings();}
+function toggleDay(i,b){SS.hoursArr[i].open=b;drawSettings();}
+function setDay(i,f,v){SS.hoursArr[i][f]=v;}
+// dispatch preset
+function applyPreset(k){var p=DPRE[k],f;for(f in p)SS.s[f]=p[f];drawSettings();}
+
 async function renderSettings(){
   document.getElementById('view').innerHTML='<div class="empty">Loading…</div>';
-  let d={};try{d=await (await fetch('/api/settings')).json();}catch(e){}
-  let h={};try{h=await (await fetch('/health')).json();}catch(e){}
-  const s=(d&&d.settings)||{};
-  document.getElementById('meta').textContent='Store #'+((d&&d.restaurant_id)||'—');
-  let html='<div style="max-width:780px">';
-  html+='<h3 class="sec" style="margin-top:0">Store profile</h3><div class="setgrid">';
-  html+='<label class="k">Restaurant name</label>'+setField('p-name',d.name,'text');
-  html+='<label class="k">WhatsApp number</label><div>'+esc(d.phone||'—')+' <span style="color:var(--muted)">(read-only)</span></div>';
-  html+='<label class="k">Latitude</label>'+setField('p-lat',d.lat,'number');
-  html+='<label class="k">Longitude</label>'+setField('p-lng',d.lng,'number');
-  html+='</div>';
-  html+='<h3 class="sec">Operational settings</h3>'
-    +'<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Delivery fees, opening hours, batching, cart recovery, resale, loyalty, dispatch — anything the store stores. Objects/lists edit as JSON.</div>'
-    +'<div class="setgrid">';
-  const keys=Object.keys(s).sort();
-  if(!keys.length)html+='<div style="color:var(--muted)">No settings yet.</div>';
-  keys.forEach(k=>{
-    const v=s[k];let type='text';
-    if(typeof v==='boolean')type='bool';
-    else if(typeof v==='number')type='number';
-    else if(v!==null&&typeof v==='object')type='json';
-    html+='<label class="k">'+esc(k)+'</label>'+setField('s-'+k,v,type);
+  var d={};try{d=await (await fetch('/api/settings')).json();}catch(e){}
+  var h={};try{h=await (await fetch('/health')).json();}catch(e){}
+  var s=deepMerge(SDEF,(d&&d.settings)||{});
+  SS={name:d.name,lat:d.lat,lng:d.lng,phone:d.phone,rid:d.restaurant_id,health:h,s:s};
+  var days=(s.open_hours&&s.open_hours.days)||{};
+  SS.noFixedHours=Object.keys(days).length===0;
+  SS.hoursArr=[0,1,2,3,4,5,6].map(function(i){var w=days[String(i)];return w?{open:true,from:w[0],to:w[1]}:{open:false,from:'10:00',to:'23:00'};});
+  drawSettings();
+}
+function drawSettings(){
+  var h=SS.health||{},s=SS.s;
+  document.getElementById('meta').textContent='Store #'+(SS.rid||'—');
+  var html='<div style="max-width:820px">';
+
+  // General
+  html+=sec('General','Your restaurant’s name and pickup location.',
+    grid(
+      fRow('Restaurant name','<input value="'+esc(SS.name==null?'':SS.name)+'" oninput="SS.name=this.value">')+
+      fRow('WhatsApp number','<span>'+esc(SS.phone||'—')+' <span style="color:var(--muted)">(read-only)</span></span>','🔒 WhatsApp Business number, locked.')+
+      fRow('Latitude','<input type="number" step="0.0001" value="'+esc(SS.lat==null?'':SS.lat)+'" oninput="SS.lat=this.value">')+
+      fRow('Longitude','<input type="number" step="0.0001" value="'+esc(SS.lng==null?'':SS.lng)+'" oninput="SS.lng=this.value">')
+    ));
+
+  // Delivery fees
+  var tiers='<div class="tierrow" style="color:var(--muted);font-size:11px;text-transform:uppercase"><span>Up to (km)</span><span>Fee (AED)</span><span>Band</span><span></span></div>';
+  s.delivery_fee_tiers.forEach(function(t,i){
+    var lower=s.delivery_fee_tiers.map(function(x){return x.max_km}).filter(function(km){return km<t.max_km}).reduce(function(m,km){return Math.max(m,km)},0);
+    var band=lower+'–'+t.max_km+'km · '+(t.fee_aed===0?'Free':'AED '+t.fee_aed);
+    tiers+='<div class="tierrow">'+
+      '<input type="number" min="1" value="'+esc(t.max_km)+'" oninput="setTier('+i+',\'max_km\',this.value)">'+
+      '<input type="number" min="0" value="'+esc(t.fee_aed)+'" oninput="setTier('+i+',\'fee_aed\',this.value)">'+
+      '<span class="band">'+esc(band)+'</span>'+
+      '<button class="minix" onclick="rmTier('+i+')" title="Remove">×</button></div>';
   });
-  html+='</div>';
-  html+='<div style="margin-top:16px"><button class="savebtn" onclick="saveSettings()">Save settings</button></div>';
-  html+='<h3 class="sec">Connection (read-only)</h3><div class="kv">'
+  tiers+='<button class="miniadd" onclick="addTier()">+ Add tier</button>';
+  html+=sec('Delivery fees','Charge by delivery distance. Smallest row starts at 0 km; the largest tier sets your radius (max 25 km).',tiers);
+
+  // Opening hours
+  var hrs='<label class="k" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" '+(SS.noFixedHours?'checked':'')+' onchange="setNoHours(this.checked)" style="width:18px;height:18px"> No fixed hours (always available)</label>';
+  if(!SS.noFixedHours){
+    hrs+='<div style="margin-top:12px">';
+    SS.hoursArr.forEach(function(dd,i){
+      hrs+='<div class="dayrow"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" '+(dd.open?'checked':'')+' onchange="toggleDay('+i+',this.checked)" style="width:16px;height:16px"> '+DAYS[i]+'</label>';
+      if(dd.open)hrs+='<div class="times"><input type="time" value="'+esc(dd.from)+'" onchange="setDay('+i+',\'from\',this.value)"> – <input type="time" value="'+esc(dd.to)+'" onchange="setDay('+i+',\'to\',this.value)"></div>';
+      else hrs+='<span style="color:var(--muted)">Closed</span>';
+      hrs+='</div>';
+    });
+    hrs+='</div>';
+  }
+  html+=sec('Opening hours','Hours the bot tells customers. Times are Asia/Dubai.',hrs);
+
+  // Batching
+  html+=sec('Batching','Limits for grouping orders under the 40-minute SLA.',
+    grid(
+      fRow('Max orders per rider',iNum('max_orders_per_batch',s.max_orders_per_batch,'int'),'Most orders one rider carries in a single trip.')+
+      fRow('Confirm large quantity above',iNum('max_item_qty',s.max_item_qty,'int'),'Above this of one item, the bot pauses for a human to confirm.')
+    ));
+
+  // Cart recovery
+  html+=sec('Cart recovery','Remind customers who left items in their cart, and auto-clear stale carts.',
+    grid(
+      fRow('Send cart reminder',iChk('cart_reminder_enabled',s.cart_reminder_enabled))+
+      fRow('Remind after (minutes)',iNum('cart_recovery_minutes',s.cart_recovery_minutes,'int'),'How long a cart sits quiet before the reminder.')+
+      fRow('Clear cart after (minutes)',iNum('cart_expiry_minutes',s.cart_expiry_minutes,'int'),'Quiet time before an abandoned cart is emptied.')
+    ));
+
+  // Resale
+  html+=sec('Cancelled-order resale','Offer cooked-but-cancelled food to the next customer at a discount.',
+    grid(
+      fRow('Enable resale offers',iChk('resale.enabled',s.resale.enabled))+
+      fRow('Discount type',iSel('resale.discount_type',s.resale.discount_type,[['percent','Percent (%)'],['fixed','Fixed amount (AED)']]))+
+      fRow(s.resale.discount_type==='percent'?'Discount (%)':'Discount (AED)',iNum('resale.discount_value',s.resale.discount_value,'num'))+
+      fRow('Max age (minutes)',iNum('resale.max_age_minutes',s.resale.max_age_minutes,'int'),'Don’t offer food cancelled longer ago than this.')
+    ));
+
+  // Loyalty
+  var loy=grid(
+    fRow('Enable loyalty',iChk('loyalty.enabled',s.loyalty.enabled))+
+    fRow('Earn rate (%)',iNum('loyalty.earn_rate',s.loyalty.earn_rate,'num','0.005'),'Fraction of subtotal credited (e.g. 0.05 = 5%).')+
+    fRow('Max credit per order (AED)',iNum('loyalty.earn_max_per_order_aed',s.loyalty.earn_max_per_order_aed,'num'))+
+    fRow('Credit expires (days)',iNum('loyalty.credit_ttl_days',s.loyalty.credit_ttl_days,'int'),'0 = never expires.')
+  );
+  LTIERS.forEach(function(tk){
+    var key=tk[0];
+    loy+='<h4 class="grp">'+tk[1]+'</h4>'+grid(
+      fRow('Min orders',iNum('loyalty.tiers.'+key+'.min_orders',s.loyalty.tiers[key].min_orders,'int'))+
+      fRow('Min spend (AED)',iNum('loyalty.tiers.'+key+'.min_spend_aed',s.loyalty.tiers[key].min_spend_aed,'num'))+
+      fRow('Max recency (days)',iNum('loyalty.tiers.'+key+'.max_recency_days',s.loyalty.tiers[key].max_recency_days,'int'))+
+      fRow('Reward AED',iNum('loyalty.tier_rewards.'+key+'.discount_aed',(s.loyalty.tier_rewards[key]||{}).discount_aed||0,'num'))+
+      fRow('Reward every N orders',iNum('loyalty.tier_rewards.'+key+'.every_n_orders',(s.loyalty.tier_rewards[key]||{}).every_n_orders||0,'int'))
+    );
+  });
+  loy+=grid(
+    fRow('Demotion grace (days)',iNum('loyalty.demotion_grace_days',s.loyalty.demotion_grace_days,'int'),'Quiet days allowed before a tier is lost.')+
+    fRow('Include catalog orders',iChk('loyalty.scope_includes_catalog',s.loyalty.scope_includes_catalog))
+  );
+  html+=sec('Loyalty','Reward repeat customers with earned credit and tier-based perks.',loy);
+
+  // Dispatch & Kitchen
+  var disp='<div class="chips">';
+  [['slaSafe','SLA-safe launch'],['dense','Dense city'],['suburban','Suburban'],['conservative','Conservative']].forEach(function(p){
+    disp+='<button class="chip" onclick="applyPreset(\''+p[0]+'\')">'+p[1]+'</button>';
+  });
+  disp+='</div>';
+  disp+=grid(fRow('Dispatch engine',iSel('dispatch_engine',s.dispatch_engine,[['greedy','Greedy — proximity batching'],['ortools','OR-Tools — SLA-first optimizer']])));
+  disp+='<h4 class="grp">Batching</h4>'+grid(
+    fRow('Group orders within (km)',iNum('batch_proximity_km',s.batch_proximity_km,'num','0.1'))+
+    fRow('Wait to group (sec)',iNum('batch_hold_seconds',s.batch_hold_seconds,'int'),'0 = send each order right away.')+
+    fRow('On-the-way detour (km)',iNum('batch_max_detour_km',s.batch_max_detour_km,'num','0.1'),'0 = simple nearby grouping.')+
+    fRow('SLA buffer per extra stop (min)',iNum('sla_buffer_per_order_minutes',s.sla_buffer_per_order_minutes,'int'))
+  );
+  disp+='<h4 class="grp">Delivery zones</h4>';
+  s.delivery_zones.forEach(function(z,i){
+    disp+='<div class="setgrid" style="grid-template-columns:1fr 1fr 1fr 90px 60px">'+
+      '<input value="'+esc(z.name)+'" oninput="setZone('+i+',\'name\',this.value)" placeholder="Name">'+
+      '<input type="number" step="0.0001" value="'+esc(z.center_lat)+'" oninput="setZone('+i+',\'center_lat\',this.value)" placeholder="lat">'+
+      '<input type="number" step="0.0001" value="'+esc(z.center_lng)+'" oninput="setZone('+i+',\'center_lng\',this.value)" placeholder="lng">'+
+      '<input type="number" step="0.1" value="'+esc(z.radius_km)+'" oninput="setZone('+i+',\'radius_km\',this.value)" placeholder="km">'+
+      '<button class="minix" onclick="rmZone('+i+')">×</button></div>';
+  });
+  disp+='<button class="miniadd" onclick="addZone()">+ Add delivery zone</button>';
+  disp+='<h4 class="grp">Kitchen</h4>'+grid(
+    fRow('Prep dispatch lead (min)',iNum('prep_dispatch_lead_min',s.prep_dispatch_lead_min,'int'))+
+    fRow('Default cook time (min)',iNum('default_prep_minutes',s.default_prep_minutes,'int'))+
+    fRow('Expedite radius (km)',iNum('batch_expedite_radius_km',s.batch_expedite_radius_km,'num','0.1'))
+  );
+  html+=sec('Dispatch & Kitchen','Routing engine and distance-driven kitchen timing.',disp);
+
+  html+='<div style="margin:22px 0"><button class="savebtn" onclick="saveSettings()">Save settings</button></div>';
+
+  // Connection (read-only)
+  html+=sec('Connection (read-only)','',
+    '<div class="kv">'
     +'<div class="k">Platform base URL</div><div>'+esc(h.base_url||'—')+'</div>'
     +'<div class="k">API key configured</div><div>'+(h.api_key_set?'✅ yes':'❌ no')+'</div>'
     +'<div class="k">Webhook secret set</div><div>'+(h.secret_set?'✅ yes':'❌ no (signatures NOT verified)')+'</div>'
     +'<div class="k">WhatsApp token</div><div>🔒 never shared with the POS</div>'
-    +'</div></div>';
+    +'</div>');
+  html+='</div>';
   document.getElementById('view').innerHTML=html;
 }
 async function saveSettings(){
-  const patch={};
-  const name=(document.getElementById('p-name').value||'').trim();if(name)patch.name=name;
-  const lat=parseFloat(document.getElementById('p-lat').value);if(!isNaN(lat))patch.lat=lat;
-  const lng=parseFloat(document.getElementById('p-lng').value);if(!isNaN(lng))patch.lng=lng;
-  let bad=null;
-  document.querySelectorAll('[data-skey]').forEach(el=>{
-    if(el.id[0]==='p')return;               // profile handled above
-    const k=el.dataset.skey,t=el.dataset.stype;let v;
-    if(t==='bool')v=el.checked;
-    else if(t==='number'){if(el.value==='')return;v=Number(el.value);if(isNaN(v))return;}
-    else if(t==='json'){try{v=JSON.parse(el.value);}catch(e){bad=k;return;}}
-    else v=el.value;
-    patch[k]=v;
-  });
-  if(bad){flash('Invalid JSON in '+bad);return;}
+  var patch={},k;for(k in SS.s)patch[k]=SS.s[k];
+  if(SS.name&&String(SS.name).trim())patch.name=String(SS.name).trim();
+  var la=parseFloat(SS.lat);if(!isNaN(la))patch.lat=la;
+  var ln=parseFloat(SS.lng);if(!isNaN(ln))patch.lng=ln;
+  if(SS.noFixedHours){patch.open_hours={tz:'Asia/Dubai',days:{}};}
+  else{var days={},i;for(i=0;i<7;i++){var dd=SS.hoursArr[i];if(dd.open)days[i]=[dd.from,dd.to];}patch.open_hours={tz:'Asia/Dubai',days:days};}
   flash('Saving…');
-  const r=await fetch('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-  let j={};try{j=await r.json();}catch(e){}
+  var r=await fetch('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+  var j={};try{j=await r.json();}catch(e){}
   if(r.status===200){flash('Settings saved ✓');renderSettings();}
   else{flash('Save failed: HTTP '+r.status+(j&&j.detail?' — '+j.detail:''));}
 }
