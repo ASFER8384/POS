@@ -209,6 +209,21 @@ async def api_takeover(cid: int, request: Request) -> JSONResponse:
     )
 
 
+@app.get("/api/settings")
+async def api_get_settings() -> JSONResponse:
+    """Full operational settings for the store (WhatsApp token/secrets stripped by the
+    platform)."""
+    return _passthrough(await _platform("GET", "/api/v1/partner/settings"))
+
+
+@app.patch("/api/settings")
+async def api_patch_settings(request: Request) -> JSONResponse:
+    """Update the store's operational settings. The platform drops any secret /
+    Meta-connection key, so the POS can never touch the WhatsApp token or catalog."""
+    body = await request.json()
+    return _passthrough(await _platform("PATCH", "/api/v1/partner/settings", json=body))
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"ok": True, "base_url": BASE_URL, "api_key_set": bool(API_KEY), "secret_set": bool(SECRET)}
@@ -292,6 +307,12 @@ _PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
  .pill.on{background:#a16207;color:#fef9c3;border-color:#a16207}
  .kv{display:grid;grid-template-columns:200px 1fr;gap:10px 16px;font-size:13px;max-width:640px}
  .kv .k{color:var(--muted)}
+ .setgrid{display:grid;grid-template-columns:210px 1fr;gap:10px 16px;align-items:center;font-size:13px;margin-bottom:6px}
+ .setgrid label.k{color:var(--muted)}
+ .setgrid input,.setgrid textarea{background:var(--inset);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px;width:100%;font-family:inherit}
+ .setgrid textarea{font-family:ui-monospace,Menlo,monospace;resize:vertical}
+ .savebtn{border:0;border-radius:8px;background:var(--accent);color:#04222e;font-weight:700;padding:9px 18px;cursor:pointer;font-family:inherit;font-size:13px}
+ h3.sec{margin:20px 0 12px;font-size:14px}
  .flash{position:fixed;bottom:16px;right:16px;background:var(--surface);border:1px solid var(--border);padding:10px 14px;border-radius:8px;font-size:13px;opacity:0;transition:.3s}
  .hide{display:none!important}
 </style></head><body>
@@ -449,22 +470,68 @@ function renderRiders(){
     +'</tbody></table>';
 }
 
-// ---- SETTINGS ----
+// ---- SETTINGS (full read + update via /api/v1/partner/settings) ----
+function setField(id,val,type){
+  if(type==='bool')return '<input id="'+id+'" data-skey="'+id.slice(2)+'" data-stype="bool" type="checkbox" '+(val?'checked':'')+' style="width:18px;height:18px">';
+  if(type==='json')return '<textarea id="'+id+'" data-skey="'+id.slice(2)+'" data-stype="json" rows="4">'+esc(JSON.stringify(val,null,2))+'</textarea>';
+  return '<input id="'+id+'" data-skey="'+id.slice(2)+'" data-stype="'+type+'" value="'+esc(val==null?'':val)+'">';
+}
 async function renderSettings(){
   document.getElementById('view').innerHTML='<div class="empty">Loading…</div>';
-  let store={};try{store=await (await fetch('/api/store')).json();}catch(e){}
+  let d={};try{d=await (await fetch('/api/settings')).json();}catch(e){}
   let h={};try{h=await (await fetch('/health')).json();}catch(e){}
-  document.getElementById('meta').textContent='';
-  document.getElementById('view').innerHTML='<div class="kv">'
-    +'<div class="k">Store</div><div>'+esc(store.name||'—')+'</div>'
-    +'<div class="k">WhatsApp number</div><div>'+esc(store.phone||'—')+'</div>'
-    +'<div class="k">POS store id</div><div>'+esc(store.pos_store_id||'—')+'</div>'
-    +'<div class="k">Partner enabled</div><div>'+(store.partner_enabled?'✅ yes':'❌ no')+'</div>'
-    +'<div class="k">Order push mode</div><div>'+esc(store.pos_order_push_mode||'—')+'</div>'
+  const s=(d&&d.settings)||{};
+  document.getElementById('meta').textContent='Store #'+((d&&d.restaurant_id)||'—');
+  let html='<div style="max-width:780px">';
+  html+='<h3 class="sec" style="margin-top:0">Store profile</h3><div class="setgrid">';
+  html+='<label class="k">Restaurant name</label>'+setField('p-name',d.name,'text');
+  html+='<label class="k">WhatsApp number</label><div>'+esc(d.phone||'—')+' <span style="color:var(--muted)">(read-only)</span></div>';
+  html+='<label class="k">Latitude</label>'+setField('p-lat',d.lat,'number');
+  html+='<label class="k">Longitude</label>'+setField('p-lng',d.lng,'number');
+  html+='</div>';
+  html+='<h3 class="sec">Operational settings</h3>'
+    +'<div style="color:var(--muted);font-size:12px;margin-bottom:10px">Delivery fees, opening hours, batching, cart recovery, resale, loyalty, dispatch — anything the store stores. Objects/lists edit as JSON.</div>'
+    +'<div class="setgrid">';
+  const keys=Object.keys(s).sort();
+  if(!keys.length)html+='<div style="color:var(--muted)">No settings yet.</div>';
+  keys.forEach(k=>{
+    const v=s[k];let type='text';
+    if(typeof v==='boolean')type='bool';
+    else if(typeof v==='number')type='number';
+    else if(v!==null&&typeof v==='object')type='json';
+    html+='<label class="k">'+esc(k)+'</label>'+setField('s-'+k,v,type);
+  });
+  html+='</div>';
+  html+='<div style="margin-top:16px"><button class="savebtn" onclick="saveSettings()">Save settings</button></div>';
+  html+='<h3 class="sec">Connection (read-only)</h3><div class="kv">'
     +'<div class="k">Platform base URL</div><div>'+esc(h.base_url||'—')+'</div>'
     +'<div class="k">API key configured</div><div>'+(h.api_key_set?'✅ yes':'❌ no')+'</div>'
     +'<div class="k">Webhook secret set</div><div>'+(h.secret_set?'✅ yes':'❌ no (signatures NOT verified)')+'</div>'
-    +'</div>';
+    +'<div class="k">WhatsApp token</div><div>🔒 never shared with the POS</div>'
+    +'</div></div>';
+  document.getElementById('view').innerHTML=html;
+}
+async function saveSettings(){
+  const patch={};
+  const name=(document.getElementById('p-name').value||'').trim();if(name)patch.name=name;
+  const lat=parseFloat(document.getElementById('p-lat').value);if(!isNaN(lat))patch.lat=lat;
+  const lng=parseFloat(document.getElementById('p-lng').value);if(!isNaN(lng))patch.lng=lng;
+  let bad=null;
+  document.querySelectorAll('[data-skey]').forEach(el=>{
+    if(el.id[0]==='p')return;               // profile handled above
+    const k=el.dataset.skey,t=el.dataset.stype;let v;
+    if(t==='bool')v=el.checked;
+    else if(t==='number'){if(el.value==='')return;v=Number(el.value);if(isNaN(v))return;}
+    else if(t==='json'){try{v=JSON.parse(el.value);}catch(e){bad=k;return;}}
+    else v=el.value;
+    patch[k]=v;
+  });
+  if(bad){flash('Invalid JSON in '+bad);return;}
+  flash('Saving…');
+  const r=await fetch('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
+  let j={};try{j=await r.json();}catch(e){}
+  if(r.status===200){flash('Settings saved ✓');renderSettings();}
+  else{flash('Save failed: HTTP '+r.status+(j&&j.detail?' — '+j.detail:''));}
 }
 
 // ---- shared ----
