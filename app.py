@@ -312,22 +312,56 @@ _PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
  .setgrid input,.setgrid textarea{background:var(--inset);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px;width:100%;font-family:inherit}
  .setgrid textarea{font-family:ui-monospace,Menlo,monospace;resize:vertical}
  .savebtn{border:0;border-radius:8px;background:var(--accent);color:#04222e;font-weight:700;padding:9px 18px;cursor:pointer;font-family:inherit;font-size:13px}
- h3.sec{margin:24px 0 6px;font-size:14px;border-top:1px solid var(--border);padding-top:16px}
- h3.sec:first-of-type{border-top:0;padding-top:0}
- h4.grp{margin:16px 0 8px;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
- .secblurb{color:var(--muted);font-size:12px;margin:0 0 12px}
- .shint{color:var(--muted);font-size:11px;margin-top:3px;max-width:520px}
- .setgrid select{background:var(--inset);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:7px 10px;font-size:13px;width:100%;font-family:inherit}
- .tierrow{display:grid;grid-template-columns:1fr 1fr 90px 32px;gap:8px;align-items:center;margin-bottom:8px;max-width:520px}
- .tierrow .band{color:var(--muted);font-size:11px}
- .dayrow{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;margin-bottom:6px;max-width:520px}
- .dayrow .times{display:flex;gap:8px;align-items:center}
- .dayrow input[type=time]{background:var(--inset);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-family:inherit}
- .miniadd{background:none;border:1px dashed var(--border);color:var(--accent);border-radius:6px;padding:7px 12px;cursor:pointer;font-size:12px;font-family:inherit;margin-top:4px}
- .minix{background:#7f1d1d;color:#fecaca;border:0;border-radius:6px;cursor:pointer;font-weight:700}
- .chips{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 12px}
- .chip{font-size:12px;padding:6px 12px;border-radius:999px;border:1px solid var(--border);background:none;color:var(--text);cursor:pointer;font-family:inherit}
- .chip:hover{border-color:var(--accent);color:var(--accent)}
+ /* ---- Settings: mirrors the ops dashboard (vertical nav + card panel + per-tab save) ---- */
+ .slayout{display:grid;grid-template-columns:220px 1fr;gap:28px;align-items:start}
+ .snav{display:flex;flex-direction:column;gap:2px;position:sticky;top:0}
+ .snavitem{display:flex;align-items:center;gap:11px;width:100%;text-align:left;background:none;border:1px solid transparent;border-radius:10px;padding:10px 12px;cursor:pointer;color:var(--muted);font-family:inherit;transition:background .12s,border-color .12s,color .12s}
+ .snavitem:not(.on):hover{background:var(--inset);color:var(--text)}
+ .snavitem.on{background:var(--surface);border-color:var(--border);color:var(--text)}
+ .snavicon{display:grid;place-items:center;width:32px;height:32px;flex-shrink:0;border-radius:8px;font-size:16px;background:var(--inset)}
+ .snavitem.on .snavicon{background:var(--accent-dim)}
+ .snavtext{display:flex;flex-direction:column;gap:1px;min-width:0}
+ .snavlabel{font-size:13px;font-weight:600;line-height:1.2}
+ .snavdesc{font-size:11px;color:var(--muted);line-height:1.2}
+ .spanel{min-width:0;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:4px 24px 24px}
+ .sechead{padding:18px 0 14px;margin-bottom:4px;border-bottom:1px solid var(--border)}
+ .sectitle{font-size:20px;font-weight:700;color:var(--text);margin:0}
+ .secblurb{font-size:12.5px;color:var(--muted);margin:6px 0 0;line-height:1.5}
+ .srow2{display:flex;gap:24px;padding:18px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+ .srowstack{display:flex;flex-direction:column;gap:10px;padding:18px 0;border-bottom:1px solid var(--border)}
+ .scol{flex:1 1 210px;display:flex;flex-direction:column;gap:7px;min-width:0}
+ .sname{font-size:14px;font-weight:500;color:var(--text)}
+ .shint{font-size:12px;color:var(--muted);line-height:1.45;max-width:520px}
+ .spanel input,.spanel textarea,.spanel select{background:var(--inset);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:9px 11px;font-size:13px;font-family:inherit;width:100%;box-sizing:border-box}
+ .spanel input:focus,.spanel select:focus{outline:none;border-color:var(--accent)}
+ .grouptitle{margin:18px 0 2px;font-size:11px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+ .sactions{display:flex;justify-content:flex-end;padding-top:18px}
+ .lock{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:600;font-family:ui-monospace,Menlo,monospace;color:var(--text)}
+ /* fee tiers */
+ .tiertable{display:flex;flex-direction:column;gap:8px;max-width:440px;padding-top:6px}
+ .tierhead{display:grid;grid-template-columns:1fr 1fr 34px;gap:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:0 2px}
+ .tierrow{display:grid;grid-template-columns:1fr 1fr 34px;gap:10px;align-items:center}
+ .tierband{font-size:11px;font-weight:600;color:var(--muted);padding-left:2px}
+ .tierx{width:34px;height:34px;border:1px solid var(--border);background:var(--inset);border-radius:8px;color:var(--muted);font-size:18px;line-height:1;cursor:pointer;padding:0}
+ .tierx:hover{border-color:#b02a2a;color:#fca5a5}
+ .addbtn{align-self:flex-start;margin-top:2px;background:var(--inset);border:1px dashed var(--border);border-radius:8px;color:var(--muted);font-size:12px;font-weight:600;padding:8px 14px;cursor:pointer;font-family:inherit}
+ .addbtn:hover{border-color:var(--accent);color:var(--accent)}
+ /* hours */
+ .htoggle{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:500;color:var(--text);cursor:pointer;background:var(--inset);border:1px solid var(--border);border-radius:10px;padding:11px 14px;max-width:440px}
+ .htoggle input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+ .hlist{display:flex;flex-direction:column;gap:6px;max-width:440px;padding:14px 0 4px}
+ .hrow{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--border);border-radius:10px;background:var(--inset)}
+ .hday{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer}
+ .hday input{width:16px;height:16px;accent-color:var(--accent)}
+ .htimes{display:flex;align-items:center;gap:8px}
+ .htimes input{width:auto}
+ .hclosed{font-size:12px;color:var(--muted);font-style:italic}
+ /* preset chips */
+ .spresets{display:inline-flex;flex-wrap:wrap;background:var(--inset);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;margin-top:6px}
+ .schip{font-size:13px;font-weight:500;background:transparent;border:0;border-radius:7px;padding:6px 14px;color:var(--muted);cursor:pointer;white-space:nowrap;font-family:inherit}
+ .schip:hover{color:var(--text);background:var(--surface)}
+ .zonerow{display:grid;grid-template-columns:1fr .8fr .8fr .6fr 34px;gap:8px;align-items:center;margin-bottom:8px;max-width:560px}
+ h3.sec{margin:24px 0 6px;font-size:14px}
  .flash{position:fixed;bottom:16px;right:16px;background:var(--surface);border:1px solid var(--border);padding:10px 14px;border-radius:8px;font-size:13px;opacity:0;transition:.3s}
  .hide{display:none!important}
 </style></head><body>
@@ -532,9 +566,6 @@ function setPath(path,val,cast){
 function iNum(path,val,cast,step){return '<input type="number" value="'+esc(val)+'"'+(step?' step="'+step+'"':'')+' oninput="setPath(\''+path+'\',this.value,\''+cast+'\')">';}
 function iChk(path,val){return '<input type="checkbox" '+(val?'checked':'')+' style="width:18px;height:18px" onchange="setPath(\''+path+'\',this.checked,\'bool\')">';}
 function iSel(path,val,opts){var o='';opts.forEach(function(op){o+='<option value="'+op[0]+'"'+(String(val)===String(op[0])?' selected':'')+'>'+esc(op[1])+'</option>';});return '<select onchange="setPath(\''+path+'\',this.value)">'+o+'</select>';}
-function grid(rows){return '<div class="setgrid">'+rows+'</div>';}
-function fRow(label,input,hint){return '<label class="k">'+esc(label)+'</label><div>'+input+(hint?'<div class="shint">'+esc(hint)+'</div>':'')+'</div>';}
-function sec(title,blurb,body){return '<h3 class="sec">'+esc(title)+'</h3>'+(blurb?'<p class="secblurb">'+esc(blurb)+'</p>':'')+body;}
 
 // fee tiers
 function setTier(i,f,v){SS.s.delivery_fee_tiers[i][f]=parseFloat(v)||0;}
@@ -562,151 +593,192 @@ async function renderSettings(){
   SS.hoursArr=[0,1,2,3,4,5,6].map(function(i){var w=days[String(i)];return w?{open:true,from:w[0],to:w[1]}:{open:false,from:'10:00',to:'23:00'};});
   drawSettings();
 }
-function drawSettings(){
-  var h=SS.health||{},s=SS.s;
-  document.getElementById('meta').textContent='Store #'+(SS.rid||'—');
-  var html='<div style="max-width:820px">';
+// sub-tabs (mirror the ops dashboard settings nav)
+var STAB='general';
+var STABS=[
+  ['general','🏪','General','Profile & location'],
+  ['fees','🛵','Delivery fees','Distance pricing'],
+  ['hours','🕒','Opening hours','When you’re open'],
+  ['batching','📦','Batching','Order grouping'],
+  ['cart','🛒','Cart recovery','Abandoned carts'],
+  ['resale','⚡','Resale','Cancelled food'],
+  ['loyalty','🎁','Loyalty','Tiers & rewards'],
+  ['dispatch','🧭','Dispatch & Kitchen','Engine & prep timing'],
+  ['connection','🔑','Connection','Platform link']
+];
+var STITLE={
+  general:['General','Your restaurant’s name and pickup location.'],
+  fees:['Delivery fees','Charge by delivery distance. Smallest row starts at 0 km; the largest tier sets your radius (max 25 km).'],
+  hours:['Opening hours','Hours the bot tells customers. Times are Asia/Dubai.'],
+  batching:['Batching','Limits for grouping orders under the 40-minute SLA.'],
+  cart:['Cart recovery','Remind customers who left items in their cart, and auto-clear stale carts.'],
+  resale:['Cancelled-order resale','Offer cooked-but-cancelled food to the next customer at a discount.'],
+  loyalty:['Loyalty','Reward repeat customers with earned credit and tier-based perks.'],
+  dispatch:['Dispatch & Kitchen','Routing engine and distance-driven kitchen timing.'],
+  connection:['Connection','How this POS reaches the platform (read-only).']
+};
+function setStab(k){STAB=k;drawSettings();}
+// row/field builders in the ops visual language
+function field(name,ctrl,hint){return '<div class="scol"><span class="sname">'+esc(name)+'</span>'+ctrl+(hint?'<div class="shint">'+esc(hint)+'</div>':'')+'</div>';}
+function row2(){return '<div class="srow2">'+Array.prototype.join.call(arguments,'')+'</div>';}
+function saveBar(fn,label){return '<div class="sactions"><button class="savebtn" onclick="'+fn+'()">'+(label||'Save')+'</button></div>';}
 
-  // General
-  html+=sec('General','Your restaurant’s name and pickup location.',
-    grid(
-      fRow('Restaurant name','<input value="'+esc(SS.name==null?'':SS.name)+'" oninput="SS.name=this.value">')+
-      fRow('WhatsApp number','<span>'+esc(SS.phone||'—')+' <span style="color:var(--muted)">(read-only)</span></span>','🔒 WhatsApp Business number, locked.')+
-      fRow('Latitude','<input type="number" step="0.0001" value="'+esc(SS.lat==null?'':SS.lat)+'" oninput="SS.lat=this.value">')+
-      fRow('Longitude','<input type="number" step="0.0001" value="'+esc(SS.lng==null?'':SS.lng)+'" oninput="SS.lng=this.value">')
-    ));
-
-  // Delivery fees
-  var tiers='<div class="tierrow" style="color:var(--muted);font-size:11px;text-transform:uppercase"><span>Up to (km)</span><span>Fee (AED)</span><span>Band</span><span></span></div>';
+function tabGeneral(){
+  return row2(
+    field('Restaurant name','<input value="'+esc(SS.name==null?'':SS.name)+'" oninput="SS.name=this.value">'),
+    field('WhatsApp number','<span class="lock">🔒 '+esc(SS.phone||'—')+'</span>','WhatsApp Business number, locked.')
+  )+row2(
+    field('Latitude','<input type="number" step="0.0001" value="'+esc(SS.lat==null?'':SS.lat)+'" oninput="SS.lat=this.value">'),
+    field('Longitude','<input type="number" step="0.0001" value="'+esc(SS.lng==null?'':SS.lng)+'" oninput="SS.lng=this.value">')
+  )+saveBar('saveGeneral','Save');
+}
+function tabFees(){
+  var s=SS.s,h='<div class="tiertable"><div class="tierhead"><span>Up to (km)</span><span>Fee (AED)</span><span></span></div>';
   s.delivery_fee_tiers.forEach(function(t,i){
     var lower=s.delivery_fee_tiers.map(function(x){return x.max_km}).filter(function(km){return km<t.max_km}).reduce(function(m,km){return Math.max(m,km)},0);
-    var band=lower+'–'+t.max_km+'km · '+(t.fee_aed===0?'Free':'AED '+t.fee_aed);
-    tiers+='<div class="tierrow">'+
+    var band=lower+'–'+t.max_km+' km · '+(t.fee_aed===0?'Free':'AED '+t.fee_aed);
+    h+='<div><div class="tierrow">'+
       '<input type="number" min="1" value="'+esc(t.max_km)+'" oninput="setTier('+i+',\'max_km\',this.value)">'+
       '<input type="number" min="0" value="'+esc(t.fee_aed)+'" oninput="setTier('+i+',\'fee_aed\',this.value)">'+
-      '<span class="band">'+esc(band)+'</span>'+
-      '<button class="minix" onclick="rmTier('+i+')" title="Remove">×</button></div>';
+      '<button class="tierx" onclick="rmTier('+i+')" title="Remove">×</button></div>'+
+      '<span class="tierband">'+esc(band)+'</span></div>';
   });
-  tiers+='<button class="miniadd" onclick="addTier()">+ Add tier</button>';
-  html+=sec('Delivery fees','Charge by delivery distance. Smallest row starts at 0 km; the largest tier sets your radius (max 25 km).',tiers);
-
-  // Opening hours
-  var hrs='<label class="k" style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" '+(SS.noFixedHours?'checked':'')+' onchange="setNoHours(this.checked)" style="width:18px;height:18px"> No fixed hours (always available)</label>';
+  h+='<button class="addbtn" onclick="addTier()">+ Add tier</button></div>';
+  return h+saveBar('saveFees','Save fee tiers');
+}
+function tabHours(){
+  var h='<label class="htoggle"><input type="checkbox" '+(SS.noFixedHours?'checked':'')+' onchange="setNoHours(this.checked)"> No fixed hours (always available)</label>';
   if(!SS.noFixedHours){
-    hrs+='<div style="margin-top:12px">';
+    h+='<div class="hlist">';
     SS.hoursArr.forEach(function(dd,i){
-      hrs+='<div class="dayrow"><label style="display:flex;gap:8px;align-items:center;cursor:pointer"><input type="checkbox" '+(dd.open?'checked':'')+' onchange="toggleDay('+i+',this.checked)" style="width:16px;height:16px"> '+DAYS[i]+'</label>';
-      if(dd.open)hrs+='<div class="times"><input type="time" value="'+esc(dd.from)+'" onchange="setDay('+i+',\'from\',this.value)"> – <input type="time" value="'+esc(dd.to)+'" onchange="setDay('+i+',\'to\',this.value)"></div>';
-      else hrs+='<span style="color:var(--muted)">Closed</span>';
-      hrs+='</div>';
+      h+='<div class="hrow"><label class="hday"><input type="checkbox" '+(dd.open?'checked':'')+' onchange="toggleDay('+i+',this.checked)"> '+DAYS[i]+'</label>';
+      if(dd.open)h+='<div class="htimes"><input type="time" value="'+esc(dd.from)+'" onchange="setDay('+i+',\'from\',this.value)"><span style="color:var(--muted)">–</span><input type="time" value="'+esc(dd.to)+'" onchange="setDay('+i+',\'to\',this.value)"></div>';
+      else h+='<span class="hclosed">Closed</span>';
+      h+='</div>';
     });
-    hrs+='</div>';
+    h+='</div>';
   }
-  html+=sec('Opening hours','Hours the bot tells customers. Times are Asia/Dubai.',hrs);
-
-  // Batching
-  html+=sec('Batching','Limits for grouping orders under the 40-minute SLA.',
-    grid(
-      fRow('Max orders per rider',iNum('max_orders_per_batch',s.max_orders_per_batch,'int'),'Most orders one rider carries in a single trip.')+
-      fRow('Confirm large quantity above',iNum('max_item_qty',s.max_item_qty,'int'),'Above this of one item, the bot pauses for a human to confirm.')
-    ));
-
-  // Cart recovery
-  html+=sec('Cart recovery','Remind customers who left items in their cart, and auto-clear stale carts.',
-    grid(
-      fRow('Send cart reminder',iChk('cart_reminder_enabled',s.cart_reminder_enabled))+
-      fRow('Remind after (minutes)',iNum('cart_recovery_minutes',s.cart_recovery_minutes,'int'),'How long a cart sits quiet before the reminder.')+
-      fRow('Clear cart after (minutes)',iNum('cart_expiry_minutes',s.cart_expiry_minutes,'int'),'Quiet time before an abandoned cart is emptied.')
-    ));
-
-  // Resale
-  html+=sec('Cancelled-order resale','Offer cooked-but-cancelled food to the next customer at a discount.',
-    grid(
-      fRow('Enable resale offers',iChk('resale.enabled',s.resale.enabled))+
-      fRow('Discount type',iSel('resale.discount_type',s.resale.discount_type,[['percent','Percent (%)'],['fixed','Fixed amount (AED)']]))+
-      fRow(s.resale.discount_type==='percent'?'Discount (%)':'Discount (AED)',iNum('resale.discount_value',s.resale.discount_value,'num'))+
-      fRow('Max age (minutes)',iNum('resale.max_age_minutes',s.resale.max_age_minutes,'int'),'Don’t offer food cancelled longer ago than this.')
-    ));
-
-  // Loyalty
-  var loy=grid(
-    fRow('Enable loyalty',iChk('loyalty.enabled',s.loyalty.enabled))+
-    fRow('Earn rate (%)',iNum('loyalty.earn_rate',s.loyalty.earn_rate,'num','0.005'),'Fraction of subtotal credited (e.g. 0.05 = 5%).')+
-    fRow('Max credit per order (AED)',iNum('loyalty.earn_max_per_order_aed',s.loyalty.earn_max_per_order_aed,'num'))+
-    fRow('Credit expires (days)',iNum('loyalty.credit_ttl_days',s.loyalty.credit_ttl_days,'int'),'0 = never expires.')
-  );
+  return h+saveBar('saveHours','Save hours');
+}
+function tabBatching(){
+  var s=SS.s;
+  return row2(
+    field('Max orders per rider',iNum('max_orders_per_batch',s.max_orders_per_batch,'int'),'Most orders one rider carries in a single trip.'),
+    field('Confirm large quantity above',iNum('max_item_qty',s.max_item_qty,'int'),'Above this of one item, the bot pauses for a human to confirm.')
+  )+saveBar('saveBatching','Save');
+}
+function tabCart(){
+  var s=SS.s;
+  return row2(field('Send cart reminder',iChk('cart_reminder_enabled',s.cart_reminder_enabled)))+
+    row2(
+      field('Remind after (minutes)',iNum('cart_recovery_minutes',s.cart_recovery_minutes,'int'),'How long a cart sits quiet before the reminder.'),
+      field('Clear cart after (minutes)',iNum('cart_expiry_minutes',s.cart_expiry_minutes,'int'),'Quiet time before an abandoned cart is emptied.')
+    )+saveBar('saveCart','Save');
+}
+function tabResale(){
+  var s=SS.s;
+  return row2(field('Enable resale offers',iChk('resale.enabled',s.resale.enabled)))+
+    row2(
+      field('Discount type',iSel('resale.discount_type',s.resale.discount_type,[['percent','Percent (%)'],['fixed','Fixed amount (AED)']])),
+      field(s.resale.discount_type==='percent'?'Discount (%)':'Discount (AED)',iNum('resale.discount_value',s.resale.discount_value,'num')),
+      field('Max age (minutes)',iNum('resale.max_age_minutes',s.resale.max_age_minutes,'int'),'Don’t offer food cancelled longer ago than this.')
+    )+saveBar('saveResale','Save');
+}
+function tabLoyalty(){
+  var s=SS.s;
+  var h=row2(field('Enable loyalty',iChk('loyalty.enabled',s.loyalty.enabled)))+
+    row2(
+      field('Earn rate (fraction)',iNum('loyalty.earn_rate',s.loyalty.earn_rate,'num','0.005'),'0.05 = 5% of subtotal credited.'),
+      field('Max credit per order (AED)',iNum('loyalty.earn_max_per_order_aed',s.loyalty.earn_max_per_order_aed,'num')),
+      field('Credit expires (days)',iNum('loyalty.credit_ttl_days',s.loyalty.credit_ttl_days,'int'),'0 = never expires.')
+    );
   LTIERS.forEach(function(tk){
     var key=tk[0];
-    loy+='<h4 class="grp">'+tk[1]+'</h4>'+grid(
-      fRow('Min orders',iNum('loyalty.tiers.'+key+'.min_orders',s.loyalty.tiers[key].min_orders,'int'))+
-      fRow('Min spend (AED)',iNum('loyalty.tiers.'+key+'.min_spend_aed',s.loyalty.tiers[key].min_spend_aed,'num'))+
-      fRow('Max recency (days)',iNum('loyalty.tiers.'+key+'.max_recency_days',s.loyalty.tiers[key].max_recency_days,'int'))+
-      fRow('Reward AED',iNum('loyalty.tier_rewards.'+key+'.discount_aed',(s.loyalty.tier_rewards[key]||{}).discount_aed||0,'num'))+
-      fRow('Reward every N orders',iNum('loyalty.tier_rewards.'+key+'.every_n_orders',(s.loyalty.tier_rewards[key]||{}).every_n_orders||0,'int'))
+    h+='<div class="grouptitle">'+tk[1]+'</div>'+row2(
+      field('Min orders',iNum('loyalty.tiers.'+key+'.min_orders',s.loyalty.tiers[key].min_orders,'int')),
+      field('Min spend (AED)',iNum('loyalty.tiers.'+key+'.min_spend_aed',s.loyalty.tiers[key].min_spend_aed,'num')),
+      field('Max recency (days)',iNum('loyalty.tiers.'+key+'.max_recency_days',s.loyalty.tiers[key].max_recency_days,'int')),
+      field('Reward AED',iNum('loyalty.tier_rewards.'+key+'.discount_aed',(s.loyalty.tier_rewards[key]||{}).discount_aed||0,'num')),
+      field('Reward every N',iNum('loyalty.tier_rewards.'+key+'.every_n_orders',(s.loyalty.tier_rewards[key]||{}).every_n_orders||0,'int'))
     );
   });
-  loy+=grid(
-    fRow('Demotion grace (days)',iNum('loyalty.demotion_grace_days',s.loyalty.demotion_grace_days,'int'),'Quiet days allowed before a tier is lost.')+
-    fRow('Include catalog orders',iChk('loyalty.scope_includes_catalog',s.loyalty.scope_includes_catalog))
+  h+=row2(
+    field('Demotion grace (days)',iNum('loyalty.demotion_grace_days',s.loyalty.demotion_grace_days,'int'),'Quiet days allowed before a tier is lost.'),
+    field('Include catalog orders',iChk('loyalty.scope_includes_catalog',s.loyalty.scope_includes_catalog))
   );
-  html+=sec('Loyalty','Reward repeat customers with earned credit and tier-based perks.',loy);
-
-  // Dispatch & Kitchen
-  var disp='<div class="chips">';
+  return h+saveBar('saveLoyalty','Save');
+}
+function tabDispatch(){
+  var s=SS.s;
+  var h='<div class="spresets">';
   [['slaSafe','SLA-safe launch'],['dense','Dense city'],['suburban','Suburban'],['conservative','Conservative']].forEach(function(p){
-    disp+='<button class="chip" onclick="applyPreset(\''+p[0]+'\')">'+p[1]+'</button>';
+    h+='<button class="schip" onclick="applyPreset(\''+p[0]+'\')">'+p[1]+'</button>';
   });
-  disp+='</div>';
-  disp+=grid(fRow('Dispatch engine',iSel('dispatch_engine',s.dispatch_engine,[['greedy','Greedy — proximity batching'],['ortools','OR-Tools — SLA-first optimizer']])));
-  disp+='<h4 class="grp">Batching</h4>'+grid(
-    fRow('Group orders within (km)',iNum('batch_proximity_km',s.batch_proximity_km,'num','0.1'))+
-    fRow('Wait to group (sec)',iNum('batch_hold_seconds',s.batch_hold_seconds,'int'),'0 = send each order right away.')+
-    fRow('On-the-way detour (km)',iNum('batch_max_detour_km',s.batch_max_detour_km,'num','0.1'),'0 = simple nearby grouping.')+
-    fRow('SLA buffer per extra stop (min)',iNum('sla_buffer_per_order_minutes',s.sla_buffer_per_order_minutes,'int'))
+  h+='</div>';
+  h+=row2(field('Dispatch engine',iSel('dispatch_engine',s.dispatch_engine,[['greedy','Greedy — proximity batching'],['ortools','OR-Tools — SLA-first optimizer']])));
+  h+='<div class="grouptitle">Batching</div>'+row2(
+    field('Group orders within (km)',iNum('batch_proximity_km',s.batch_proximity_km,'num','0.1')),
+    field('Wait to group (sec)',iNum('batch_hold_seconds',s.batch_hold_seconds,'int'),'0 = send each order right away.'),
+    field('On-the-way detour (km)',iNum('batch_max_detour_km',s.batch_max_detour_km,'num','0.1'),'0 = simple nearby grouping.'),
+    field('SLA buffer per extra stop (min)',iNum('sla_buffer_per_order_minutes',s.sla_buffer_per_order_minutes,'int'))
   );
-  disp+='<h4 class="grp">Delivery zones</h4>';
+  h+='<div class="grouptitle">Delivery zones</div><div style="padding-top:8px">';
   s.delivery_zones.forEach(function(z,i){
-    disp+='<div class="setgrid" style="grid-template-columns:1fr 1fr 1fr 90px 60px">'+
+    h+='<div class="zonerow">'+
       '<input value="'+esc(z.name)+'" oninput="setZone('+i+',\'name\',this.value)" placeholder="Name">'+
       '<input type="number" step="0.0001" value="'+esc(z.center_lat)+'" oninput="setZone('+i+',\'center_lat\',this.value)" placeholder="lat">'+
       '<input type="number" step="0.0001" value="'+esc(z.center_lng)+'" oninput="setZone('+i+',\'center_lng\',this.value)" placeholder="lng">'+
       '<input type="number" step="0.1" value="'+esc(z.radius_km)+'" oninput="setZone('+i+',\'radius_km\',this.value)" placeholder="km">'+
-      '<button class="minix" onclick="rmZone('+i+')">×</button></div>';
+      '<button class="tierx" onclick="rmZone('+i+')">×</button></div>';
   });
-  disp+='<button class="miniadd" onclick="addZone()">+ Add delivery zone</button>';
-  disp+='<h4 class="grp">Kitchen</h4>'+grid(
-    fRow('Prep dispatch lead (min)',iNum('prep_dispatch_lead_min',s.prep_dispatch_lead_min,'int'))+
-    fRow('Default cook time (min)',iNum('default_prep_minutes',s.default_prep_minutes,'int'))+
-    fRow('Expedite radius (km)',iNum('batch_expedite_radius_km',s.batch_expedite_radius_km,'num','0.1'))
+  h+='<button class="addbtn" onclick="addZone()">+ Add delivery zone</button></div>';
+  h+='<div class="grouptitle">Kitchen</div>'+row2(
+    field('Prep dispatch lead (min)',iNum('prep_dispatch_lead_min',s.prep_dispatch_lead_min,'int')),
+    field('Default cook time (min)',iNum('default_prep_minutes',s.default_prep_minutes,'int')),
+    field('Expedite radius (km)',iNum('batch_expedite_radius_km',s.batch_expedite_radius_km,'num','0.1'))
   );
-  html+=sec('Dispatch & Kitchen','Routing engine and distance-driven kitchen timing.',disp);
-
-  html+='<div style="margin:22px 0"><button class="savebtn" onclick="saveSettings()">Save settings</button></div>';
-
-  // Connection (read-only)
-  html+=sec('Connection (read-only)','',
-    '<div class="kv">'
+  return h+saveBar('saveDispatch','Save');
+}
+function tabConnection(){
+  var h=SS.health||{};
+  return '<div class="kv" style="padding-top:18px">'
     +'<div class="k">Platform base URL</div><div>'+esc(h.base_url||'—')+'</div>'
     +'<div class="k">API key configured</div><div>'+(h.api_key_set?'✅ yes':'❌ no')+'</div>'
     +'<div class="k">Webhook secret set</div><div>'+(h.secret_set?'✅ yes':'❌ no (signatures NOT verified)')+'</div>'
     +'<div class="k">WhatsApp token</div><div>🔒 never shared with the POS</div>'
-    +'</div>');
-  html+='</div>';
-  document.getElementById('view').innerHTML=html;
+    +'</div>';
 }
-async function saveSettings(){
-  var patch={},k;for(k in SS.s)patch[k]=SS.s[k];
-  if(SS.name&&String(SS.name).trim())patch.name=String(SS.name).trim();
-  var la=parseFloat(SS.lat);if(!isNaN(la))patch.lat=la;
-  var ln=parseFloat(SS.lng);if(!isNaN(ln))patch.lng=ln;
-  if(SS.noFixedHours){patch.open_hours={tz:'Asia/Dubai',days:{}};}
-  else{var days={},i;for(i=0;i<7;i++){var dd=SS.hoursArr[i];if(dd.open)days[i]=[dd.from,dd.to];}patch.open_hours={tz:'Asia/Dubai',days:days};}
+function drawSettings(){
+  document.getElementById('meta').textContent='Store #'+(SS.rid||'—');
+  var nav='';
+  STABS.forEach(function(t){
+    nav+='<button class="snavitem'+(STAB===t[0]?' on':'')+'" onclick="setStab(\''+t[0]+'\')">'+
+      '<span class="snavicon">'+t[1]+'</span><span class="snavtext"><span class="snavlabel">'+t[2]+'</span><span class="snavdesc">'+t[3]+'</span></span></button>';
+  });
+  var body={general:tabGeneral,fees:tabFees,hours:tabHours,batching:tabBatching,cart:tabCart,resale:tabResale,loyalty:tabLoyalty,dispatch:tabDispatch,connection:tabConnection}[STAB]();
+  var title=STITLE[STAB];
+  var panel='<div class="spanel"><div class="sechead"><h2 class="sectitle">'+esc(title[0])+'</h2>'+(title[1]?'<p class="secblurb">'+esc(title[1])+'</p>':'')+'</div>'+body+'</div>';
+  document.getElementById('view').innerHTML='<div class="slayout"><nav class="snav">'+nav+'</nav>'+panel+'</div>';
+}
+
+// per-tab save (only that tab's keys; mirrors the ops dashboard)
+async function doSave(patch,label){
   flash('Saving…');
-  var r=await fetch('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});
-  var j={};try{j=await r.json();}catch(e){}
-  if(r.status===200){flash('Settings saved ✓');renderSettings();}
-  else{flash('Save failed: HTTP '+r.status+(j&&j.detail?' — '+j.detail:''));}
+  var r,j={};
+  try{r=await fetch('/api/settings',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(patch)});}
+  catch(e){flash('Save failed: network');return;}
+  try{j=await r.json();}catch(e){}
+  if(r.status===200){flash((label||'Settings')+' saved ✓');await renderSettings();}
+  else{flash('Save failed: HTTP '+r.status+(j&&j.detail?' — '+(typeof j.detail==='string'?j.detail:JSON.stringify(j.detail)):''));}
 }
+function saveGeneral(){var p={};if(SS.name&&String(SS.name).trim())p.name=String(SS.name).trim();var la=parseFloat(SS.lat);if(!isNaN(la))p.lat=la;var ln=parseFloat(SS.lng);if(!isNaN(ln))p.lng=ln;doSave(p,'Profile');}
+function saveFees(){doSave({delivery_fee_tiers:SS.s.delivery_fee_tiers},'Fee tiers');}
+function saveHours(){var p;if(SS.noFixedHours){p={open_hours:{tz:'Asia/Dubai',days:{}}};}else{var days={},i;for(i=0;i<7;i++){var dd=SS.hoursArr[i];if(dd.open)days[i]=[dd.from,dd.to];}p={open_hours:{tz:'Asia/Dubai',days:days}};}doSave(p,'Hours');}
+function saveBatching(){doSave({max_orders_per_batch:SS.s.max_orders_per_batch,max_item_qty:SS.s.max_item_qty},'Batching');}
+function saveCart(){doSave({cart_reminder_enabled:SS.s.cart_reminder_enabled,cart_recovery_minutes:SS.s.cart_recovery_minutes,cart_expiry_minutes:SS.s.cart_expiry_minutes},'Cart recovery');}
+function saveResale(){doSave({resale:SS.s.resale},'Resale');}
+function saveLoyalty(){doSave({loyalty:SS.s.loyalty},'Loyalty');}
+function saveDispatch(){doSave({dispatch_engine:SS.s.dispatch_engine,default_prep_minutes:SS.s.default_prep_minutes,prep_dispatch_lead_min:SS.s.prep_dispatch_lead_min,batch_expedite_radius_km:SS.s.batch_expedite_radius_km,batch_proximity_km:SS.s.batch_proximity_km,batch_max_detour_km:SS.s.batch_max_detour_km,batch_hold_seconds:SS.s.batch_hold_seconds,sla_buffer_per_order_minutes:SS.s.sla_buffer_per_order_minutes,delivery_zones:SS.s.delivery_zones},'Dispatch');}
 
 // ---- shared ----
 function setConn(ok){const d=document.getElementById('conn');const l=document.getElementById('connlbl');
