@@ -221,6 +221,14 @@ async def api_takeover(cid: int, request: Request) -> JSONResponse:
     )
 
 
+@app.get("/api/menu")
+async def api_menu() -> JSONResponse:
+    """Read back the store's active menu from the platform so the POS can display it
+    (pull path). Archived dishes excluded by the platform; sold-out rows kept so the
+    POS can show them greyed."""
+    return _passthrough(await _platform("GET", "/api/v1/partner/menu/items"))
+
+
 @app.get("/api/settings")
 async def api_get_settings() -> JSONResponse:
     """Full operational settings for the store (WhatsApp token/secrets stripped by the
@@ -380,6 +388,7 @@ _PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
 <nav>
   <div class="logo">🧾 TEMP POS</div>
   <button class="navitem active" data-tab="orders"><span class="ic">📋</span>Orders<span class="count hide" id="c-orders"></span></button>
+  <button class="navitem" data-tab="menu"><span class="ic">🍽️</span>Menu<span class="count hide" id="c-menu"></span></button>
   <button class="navitem" data-tab="chat"><span class="ic">💬</span>Chat<span class="count hide" id="c-chat"></span></button>
   <button class="navitem" data-tab="customers"><span class="ic">👥</span>Customers</button>
   <button class="navitem" data-tab="riders"><span class="ic">🛵</span>Riders</button>
@@ -392,7 +401,7 @@ _PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
 </main>
 <div class="flash" id="flash"></div>
 <script>
-const TITLES={orders:"Orders",chat:"Chat",customers:"Customers",riders:"Riders",settings:"Settings"};
+const TITLES={orders:"Orders",menu:"Menu",chat:"Chat",customers:"Customers",riders:"Riders",settings:"Settings"};
 let TAB="orders", CONVS=[], ACTIVE_CONV=null, TAKEOVER=false;
 function money(v){return v==null?'':'AED '+Number(v).toFixed(2)}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
@@ -514,6 +523,33 @@ function renderChat(){
   document.getElementById('meta').textContent=CONVS.length+' conversation(s)';
   document.getElementById('view').innerHTML='<div class="chatwrap"><div class="convlist">'+list+'</div>'+thread+'</div>';
   if(ACTIVE_CONV!=null)loadThread();
+}
+
+// ---- MENU (read-back from the platform: GET /api/v1/partner/menu/items) ----
+async function renderMenu(){
+  document.getElementById('view').innerHTML='<div class="empty">Loading…</div>';
+  let items=[];
+  try{const r=await fetch('/api/menu');const j=await r.json();items=(j.body&&j.body.items)||j.items||[];}
+  catch(e){document.getElementById('view').innerHTML='<div class="empty">Could not load the menu.</div>';return;}
+  const avail=items.filter(i=>i.is_available).length;
+  document.getElementById('meta').textContent=items.length+' item(s) · '+avail+' available';
+  if(!items.length){document.getElementById('view').innerHTML='<div class="empty">No menu yet. Add dishes in the platform, or sync from your POS.</div>';return;}
+  // group by category for a readable board
+  const groups={};
+  items.forEach(i=>{const c=i.category||'Other';(groups[c]=groups[c]||[]).push(i);});
+  const cats=Object.keys(groups).sort();
+  let html='';
+  cats.forEach(c=>{
+    html+='<h2 style="margin:18px 0 8px;font-size:14px;color:var(--muted)">'+esc(c)+'</h2>';
+    html+='<table><thead><tr><th style="width:60px">#</th><th>Dish</th><th style="width:100px">Price</th><th style="width:110px">Status</th></tr></thead><tbody>';
+    html+=groups[c].map(i=>'<tr'+(i.is_available?'':' style="opacity:.5"')+'>'
+      +'<td>'+(i.dish_number!=null?esc(i.dish_number):'—')+'</td>'
+      +'<td>'+esc(i.name)+(i.description?('<div style="font-size:12px;color:var(--muted)">'+esc(i.description)+'</div>'):'')+'</td>'
+      +'<td>'+(i.price!=null?money(i.price):'—')+'</td>'
+      +'<td>'+(i.is_available?'<span class="badge b-confirmed">available</span>':'<span class="badge b-cancelled">sold out</span>')+'</td></tr>').join('');
+    html+='</tbody></table>';
+  });
+  document.getElementById('view').innerHTML=html;
 }
 
 // ---- CUSTOMERS ----
@@ -816,6 +852,7 @@ function setConn(ok){const d=document.getElementById('conn');const l=document.ge
 function setCount(id,n){const el=document.getElementById(id);if(!el)return;if(n>0){el.textContent=n;el.classList.remove('hide');}else el.classList.add('hide');}
 function render(){
   if(TAB==='orders')loadOrders();
+  else if(TAB==='menu')renderMenu();
   else if(TAB==='chat'){renderChat();loadConvs();}
   else if(TAB==='customers')renderCustomers();
   else if(TAB==='riders'){renderRiders();loadRiders();}
