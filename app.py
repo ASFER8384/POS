@@ -229,6 +229,33 @@ async def api_menu() -> JSONResponse:
     return _passthrough(await _platform("GET", "/api/v1/partner/menu/items"))
 
 
+@app.put("/api/menu/add")
+async def api_menu_add(request: Request) -> JSONResponse:
+    """Add a single dish (bulk-upsert of one item by pos_id)."""
+    item = await request.json()
+    return _passthrough(
+        await _platform("PUT", "/api/v1/partner/menu/items", json={"items": [item]})
+    )
+
+
+@app.post("/api/menu/upload")
+async def api_menu_upload(request: Request) -> JSONResponse:
+    """AI menu digitization: forward the uploaded photo/PDF file(s) to the platform's
+    extractor. Streams multipart straight through (the API key stays server-side)."""
+    form = await request.form()
+    files = []
+    for key, val in form.multi_items():
+        if hasattr(val, "read"):  # an UploadFile
+            data = await val.read()
+            files.append(("files", (val.filename, data, val.content_type or "application/octet-stream")))
+    if not files:
+        return JSONResponse({"http": 422, "body": {"detail": "No files"}}, status_code=422)
+    result = await _platform(
+        "POST", "/api/v1/partner/menu/upload", files=files, timeout=120.0
+    )
+    return _passthrough(result)
+
+
 @app.get("/api/settings")
 async def api_get_settings() -> JSONResponse:
     """Full operational settings for the store (WhatsApp token/secrets stripped by the
@@ -525,20 +552,68 @@ function renderChat(){
   if(ACTIVE_CONV!=null)loadThread();
 }
 
-// ---- MENU (read-back from the platform: GET /api/v1/partner/menu/items) ----
+// ---- MENU (read/add/upload via the partner API) ----
+function menuToolbar(){
+  return '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'
+    +'<button class="act bg" onclick="toggleAddDish()">＋ Add dish</button>'
+    +'<button class="act by" onclick="document.getElementById(\'menu-file\').click()">⬆ Upload menu (photo/PDF)</button>'
+    +'<input type="file" id="menu-file" class="hide" accept="image/*,application/pdf" multiple onchange="uploadMenu(this)">'
+    +'</div>'
+    +'<div id="add-dish-form" class="hide" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px">'
+      +'<div style="display:grid;grid-template-columns:90px 1fr;gap:10px;max-width:520px;align-items:center">'
+      +'<label>Number</label><input id="ad-num" type="number" min="1" placeholder="e.g. 101">'
+      +'<label>Name</label><input id="ad-name" placeholder="Dish name">'
+      +'<label>Price (AED)</label><input id="ad-price" type="number" min="0" step="0.5" placeholder="e.g. 22">'
+      +'<label>Category</label><input id="ad-cat" placeholder="e.g. Rice">'
+      +'<label>Description</label><input id="ad-desc" placeholder="optional, max 3 lines">'
+      +'<label>Available</label><input id="ad-avail" type="checkbox" checked style="justify-self:start;width:18px;height:18px">'
+      +'</div>'
+      +'<div style="margin-top:12px;display:flex;gap:8px"><button class="act bg" onclick="saveDish()">Save dish</button>'
+      +'<button class="act bd" onclick="toggleAddDish()">Cancel</button></div>'
+    +'</div>';
+}
+function toggleAddDish(){document.getElementById('add-dish-form').classList.toggle('hide');}
+async function saveDish(){
+  const name=document.getElementById('ad-name').value.trim();
+  const price=parseFloat(document.getElementById('ad-price').value);
+  const num=document.getElementById('ad-num').value.trim();
+  if(!name||!(price>0)){flash('Name and a price > 0 are required');return;}
+  const item={pos_id:'pos-'+(num||Date.now()),name:name,price:price,
+    is_available:document.getElementById('ad-avail').checked};
+  if(num)item.dish_number=parseInt(num,10);
+  const cat=document.getElementById('ad-cat').value.trim();if(cat)item.category=cat;
+  const desc=document.getElementById('ad-desc').value.trim();if(desc)item.description=desc;
+  flash('Saving…');
+  const r=await fetch('/api/menu/add',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
+  const j=await r.json();
+  if(r.ok&&(j.body&&(j.body.created||j.body.updated))){flash('Dish saved ✅');renderMenu();}
+  else{flash('Save failed: '+JSON.stringify((j.body&&(j.body.errors||j.body.detail))||j.body||r.status));}
+}
+async function uploadMenu(input){
+  if(!input.files||!input.files.length)return;
+  const fd=new FormData();
+  for(const f of input.files)fd.append('files',f);
+  input.value='';
+  flash('Reading menu… (AI extraction can take up to a minute)');
+  const r=await fetch('/api/menu/upload',{method:'POST',body:fd});
+  const j=await r.json();
+  const b=j.body||{};
+  if(r.ok&&b.detail){flash(b.detail);renderMenu();}
+  else{flash('Upload failed: '+((b.detail)||('HTTP '+r.status)));}
+}
 async function renderMenu(){
-  document.getElementById('view').innerHTML='<div class="empty">Loading…</div>';
+  document.getElementById('view').innerHTML=menuToolbar()+'<div class="empty">Loading…</div>';
   let items=[];
   try{const r=await fetch('/api/menu');const j=await r.json();items=(j.body&&j.body.items)||j.items||[];}
-  catch(e){document.getElementById('view').innerHTML='<div class="empty">Could not load the menu.</div>';return;}
+  catch(e){document.getElementById('view').innerHTML=menuToolbar()+'<div class="empty">Could not load the menu.</div>';return;}
   const avail=items.filter(i=>i.is_available).length;
   document.getElementById('meta').textContent=items.length+' item(s) · '+avail+' available';
-  if(!items.length){document.getElementById('view').innerHTML='<div class="empty">No menu yet. Add dishes in the platform, or sync from your POS.</div>';return;}
+  let html=menuToolbar();
+  if(!items.length){document.getElementById('view').innerHTML=html+'<div class="empty">No menu yet. Add a dish or upload your menu above.</div>';return;}
   // group by category for a readable board
   const groups={};
   items.forEach(i=>{const c=i.category||'Other';(groups[c]=groups[c]||[]).push(i);});
   const cats=Object.keys(groups).sort();
-  let html='';
   cats.forEach(c=>{
     html+='<h2 style="margin:18px 0 8px;font-size:14px;color:var(--muted)">'+esc(c)+'</h2>';
     html+='<table><thead><tr><th style="width:60px">#</th><th>Dish</th><th style="width:100px">Price</th><th style="width:110px">Status</th></tr></thead><tbody>';
