@@ -247,6 +247,7 @@ async def api_menu_whatsapp(dish_id: int, request: Request) -> JSONResponse:
         await _platform(
             "PATCH", f"/api/v1/partner/menu/items/by-id/{dish_id}",
             json={"whatsapp_enabled": bool(body.get("whatsapp_enabled"))},
+            timeout=60.0,
         )
     )
 
