@@ -263,6 +263,32 @@ async def api_menu_whatsapp(dish_id: int, request: Request) -> JSONResponse:
     )
 
 
+@app.post("/api/menu/describe")
+async def api_menu_describe(request: Request) -> JSONResponse:
+    """AI 'Suggest' a description. The AI key stays on the platform."""
+    body = await request.json()
+    return _passthrough(
+        await _platform("POST", "/api/v1/partner/menu/describe", json=body, timeout=60.0)
+    )
+
+
+@app.post("/api/menu/generate-image")
+async def api_menu_generate_image(request: Request) -> JSONResponse:
+    """AI (GPT) dish photo. The OpenAI key stays on the platform; returns a /media URL.
+    Adds an absolute ``preview_url`` (platform base + path) so the POS can show it — the
+    relative ``url`` is what gets saved on the dish (the platform serves it to Meta)."""
+    body = await request.json()
+    r = await _platform(
+        "POST", "/api/v1/partner/menu/generate-image", json=body, timeout=90.0
+    )
+    ct = r.headers.get("content-type", "")
+    data = r.json() if ct.startswith("application/json") else {"raw": r.text}
+    if r.status_code == 200 and isinstance(data, dict) and data.get("url"):
+        u = data["url"]
+        data["preview_url"] = u if u.startswith("http") else BASE_URL.rstrip("/") + u
+    return JSONResponse(data, status_code=r.status_code)
+
+
 @app.post("/api/menu/upload")
 async def api_menu_upload(request: Request) -> JSONResponse:
     """AI menu digitization: forward the uploaded photo/PDF file(s) to the platform's
@@ -590,12 +616,42 @@ function menuToolbar(){
       +'<label>Name</label><input id="ad-name" placeholder="Dish name">'
       +'<label>Price (AED)</label><input id="ad-price" type="number" min="0" step="0.5" placeholder="e.g. 22">'
       +'<label>Category</label><input id="ad-cat" placeholder="e.g. Rice">'
-      +'<label>Description</label><input id="ad-desc" placeholder="optional, max 3 lines">'
+      +'<label>Description</label><div style="display:flex;gap:6px"><input id="ad-desc" style="flex:1" placeholder="optional, max 3 lines">'
+        +'<button class="act by" style="white-space:nowrap" onclick="suggestDesc()">✨ Suggest</button></div>'
+      +'<label>Image</label><div style="display:flex;gap:8px;align-items:center">'
+        +'<button class="act by" onclick="genImage()">🖼 Generate image</button>'
+        +'<img id="ad-imgprev" style="height:44px;border-radius:6px;display:none" />'
+        +'<input type="hidden" id="ad-imgurl" /></div>'
       +'<label>Available</label><input id="ad-avail" type="checkbox" checked style="justify-self:start;width:18px;height:18px">'
       +'</div>'
       +'<div style="margin-top:12px;display:flex;gap:8px"><button class="act bg" onclick="saveDish()">Save dish</button>'
       +'<button class="act bd" onclick="toggleAddDish()">Cancel</button></div>'
     +'</div>';
+}
+async function suggestDesc(){
+  const name=document.getElementById('ad-name').value.trim();
+  if(!name){flash('Type the dish name first');return;}
+  flash('Thinking…');
+  const cat=document.getElementById('ad-cat').value.trim();
+  const r=await fetch('/api/menu/describe',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:name,category:cat||null})});
+  const j=await r.json();const b=j.body||j;const t=b.description||'';
+  if(r.ok&&t){document.getElementById('ad-desc').value=t;flash('Suggested ✅');}
+  else{flash('No suggestion: '+((b.detail)||('HTTP '+r.status)));}
+}
+async function genImage(){
+  const name=document.getElementById('ad-name').value.trim();
+  if(!name){flash('Type the dish name first');return;}
+  flash('Generating image… (can take ~30s)');
+  const cat=document.getElementById('ad-cat').value.trim();
+  const r=await fetch('/api/menu/generate-image',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({name:name,category:cat||null})});
+  const j=await r.json();const b=j.body||j;
+  if(r.ok&&b.url){
+    document.getElementById('ad-imgurl').value=b.url;
+    const p=document.getElementById('ad-imgprev');p.src=b.preview_url||b.url;p.style.display='inline-block';
+    flash('Image generated ✅');
+  }else{flash('Image failed: '+((b.detail)||('HTTP '+r.status)));}
 }
 function toggleAddDish(){document.getElementById('add-dish-form').classList.toggle('hide');}
 async function saveDish(){
@@ -608,11 +664,12 @@ async function saveDish(){
   if(num)item.dish_number=parseInt(num,10);
   const cat=document.getElementById('ad-cat').value.trim();if(cat)item.category=cat;
   const desc=document.getElementById('ad-desc').value.trim();if(desc)item.description=desc;
+  if(document.getElementById('ad-imgurl').value)item.image_url=document.getElementById('ad-imgurl').value;
   flash('Saving…');
   const r=await fetch('/api/menu/add',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
-  const j=await r.json();
-  if(r.ok&&(j.body&&(j.body.created||j.body.updated))){flash('Dish saved ✅');renderMenu();}
-  else{flash('Save failed: '+JSON.stringify((j.body&&(j.body.errors||j.body.detail))||j.body||r.status));}
+  const j=await r.json();const b=j.body||j;
+  if(r.ok&&(b.created||b.updated)){flash('Dish saved ✅');renderMenu();}
+  else{flash('Save failed: '+JSON.stringify(b.errors||b.detail||r.status));}
 }
 async function uploadMenu(input){
   if(!input.files||!input.files.length)return;
@@ -622,7 +679,7 @@ async function uploadMenu(input){
   flash('Reading menu… (AI extraction can take up to a minute)');
   const r=await fetch('/api/menu/upload',{method:'POST',body:fd});
   const j=await r.json();
-  const b=j.body||{};
+  const b=j.body||j;
   if(r.ok&&b.detail){flash(b.detail);renderMenu();}
   else{flash('Upload failed: '+((b.detail)||('HTTP '+r.status)));}
 }
@@ -639,15 +696,15 @@ async function toggleWa(id,cur,ev){
   const next=!cur;
   const r=await fetch('/api/menu/'+id+'/whatsapp',{method:'PATCH',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({whatsapp_enabled:next})});
-  const j=await r.json();
-  if(r.ok&&j.body&&j.body.whatsapp_enabled===next){flash('WhatsApp '+(next?'ON':'OFF')+' for this dish ✅');renderMenu();}
-  else{flash('Toggle failed: '+((j.body&&j.body.detail)||('HTTP '+r.status)));renderMenu();}
+  const j=await r.json();const b=j.body||j;
+  if(r.ok&&b.whatsapp_enabled===next){flash('WhatsApp '+(next?'ON':'OFF')+' for this dish ✅');renderMenu();}
+  else{flash('Toggle failed: '+((b.detail)||('HTTP '+r.status)));renderMenu();}
 }
 async function deleteDish(id,name){
   if(!confirm('Delete "'+name+'"? It will be removed from WhatsApp too.'))return;
   flash('Deleting…');
   const r=await fetch('/api/menu/'+id,{method:'DELETE'});
-  const j=await r.json();const b=j.body||{};
+  const j=await r.json();const b=j.body||j;
   if(r.ok&&b.detail){flash(b.detail);renderMenu();}
   else{flash('Delete failed: '+((b.detail)||('HTTP '+r.status)));}
 }
