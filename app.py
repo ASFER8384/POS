@@ -238,6 +238,17 @@ async def api_menu_add(request: Request) -> JSONResponse:
     )
 
 
+@app.delete("/api/menu/{dish_id}")
+async def api_menu_delete(dish_id: int) -> JSONResponse:
+    """Delete a dish by platform id. The platform hard-deletes it (or archives it if it
+    has order history) and removes it from Meta — the POS never touches the token."""
+    return _passthrough(
+        await _platform(
+            "DELETE", f"/api/v1/partner/menu/items/by-id/{dish_id}", timeout=60.0
+        )
+    )
+
+
 @app.patch("/api/menu/{dish_id}/whatsapp")
 async def api_menu_whatsapp(dish_id: int, request: Request) -> JSONResponse:
     """Flip a dish's WhatsApp switch by its platform id. Sends ONLY the boolean — the
@@ -632,6 +643,14 @@ async function toggleWa(id,cur,ev){
   if(r.ok&&j.body&&j.body.whatsapp_enabled===next){flash('WhatsApp '+(next?'ON':'OFF')+' for this dish ✅');renderMenu();}
   else{flash('Toggle failed: '+((j.body&&j.body.detail)||('HTTP '+r.status)));renderMenu();}
 }
+async function deleteDish(id,name){
+  if(!confirm('Delete "'+name+'"? It will be removed from WhatsApp too.'))return;
+  flash('Deleting…');
+  const r=await fetch('/api/menu/'+id,{method:'DELETE'});
+  const j=await r.json();const b=j.body||{};
+  if(r.ok&&b.detail){flash(b.detail);renderMenu();}
+  else{flash('Delete failed: '+((b.detail)||('HTTP '+r.status)));}
+}
 async function renderMenu(){
   document.getElementById('view').innerHTML=menuToolbar()+'<div class="empty">Loading…</div>';
   let items=[];
@@ -647,13 +666,15 @@ async function renderMenu(){
   const cats=Object.keys(groups).sort();
   cats.forEach(c=>{
     html+='<h2 style="margin:18px 0 8px;font-size:14px;color:var(--muted)">'+esc(c)+'</h2>';
-    html+='<table><thead><tr><th style="width:60px">#</th><th>Dish</th><th style="width:100px">Price</th><th style="width:110px">Status</th><th style="width:130px">WhatsApp</th></tr></thead><tbody>';
+    html+='<table><thead><tr><th style="width:60px">#</th><th>Dish</th><th style="width:100px">Price</th><th style="width:110px">Status</th><th style="width:130px">WhatsApp</th><th style="width:70px"></th></tr></thead><tbody>';
     html+=groups[c].map(i=>'<tr'+(i.is_available?'':' style="opacity:.5"')+'>'
       +'<td>'+(i.dish_number!=null?esc(i.dish_number):'—')+'</td>'
       +'<td>'+esc(i.name)+(i.description?('<div style="font-size:12px;color:var(--muted)">'+esc(i.description)+'</div>'):'')+'</td>'
       +'<td>'+(i.price!=null?money(i.price):'—')+'</td>'
       +'<td>'+(i.is_available?'<span class="badge b-confirmed">available</span>':'<span class="badge b-cancelled">sold out</span>')+'</td>'
-      +'<td>'+waToggle(i)+'</td></tr>').join('');
+      +'<td>'+waToggle(i)+'</td>'
+      +'<td><button title="Delete dish" style="cursor:pointer;border:1px solid var(--border);background:transparent;color:#c0392b;border-radius:8px;padding:4px 10px;font-size:13px" onclick="deleteDish('+i.id+',\''+esc(i.name).replace(/'/g,"\\'")+'\')">🗑</button></td>'
+      +'</tr>').join('');
     html+='</tbody></table>';
   });
   document.getElementById('view').innerHTML=html;
