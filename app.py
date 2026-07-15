@@ -943,6 +943,10 @@ function menuToolbar(){
         +'<div class="muted" style="font-size:12px;margin-top:4px">optional, e.g. 1 serve AED 22 / 4 serve AED 60</div>'
         +'</div>'
       +'<label>Category</label><input id="ad-cat" placeholder="e.g. Rice">'
+      +'<label>Prep minutes</label><input id="ad-prep" type="number" min="0" max="600" placeholder="optional — kitchen estimate, blank = store default">'
+      +'<label>Brand</label><input id="ad-brand" placeholder="optional — defaults to the restaurant name">'
+      +'<label>Condition</label><select id="ad-cond"><option value="">new (default)</option><option value="new">new</option><option value="refurbished">refurbished</option><option value="used">used</option></select>'
+      +'<label>FB category</label><input id="ad-fbcat" placeholder="optional — Meta taxonomy, e.g. Food &amp; Drink">'
       +'<label>Description</label><div style="display:flex;gap:6px"><input id="ad-desc" style="flex:1" placeholder="optional, max 3 lines">'
         +'<button class="act by" style="white-space:nowrap" onclick="suggestDesc()">✨ Suggest</button></div>'
       +'<label>Image</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
@@ -1054,6 +1058,11 @@ async function saveDish(){
   const sale=parseFloat(document.getElementById('ad-sale').value);
   if(sale>0)item.sale_price=sale;
   const vars=readVariants();if(vars.length)item.variants=vars;
+  const prep=document.getElementById('ad-prep').value.trim();
+  if(prep!=='')item.prep_minutes=parseInt(prep,10);
+  const brand=document.getElementById('ad-brand').value.trim();if(brand)item.brand=brand;
+  const cond=document.getElementById('ad-cond').value;if(cond)item.condition=cond;
+  const fbcat=document.getElementById('ad-fbcat').value.trim();if(fbcat)item.fb_product_category=fbcat;
   flash('Saving…');
   const r=await fetch('/api/menu/add',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
   const j=await r.json();const b=j.body||j;
