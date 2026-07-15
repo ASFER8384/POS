@@ -479,6 +479,17 @@ async def api_menu() -> JSONResponse:
     return _passthrough(await _platform("GET", "/api/v1/partner/menu/items"))
 
 
+@app.get("/api/menu/next-number")
+async def api_menu_next_number() -> JSONResponse:
+    """The next free dish number, so Add-dish can pre-fill it.
+
+    Asked of the platform rather than worked out from /api/menu: that listing hides
+    archived dishes and shows only the active menu, so max+1 over it can hand back a
+    number an old dish still owns — and a dish number is how a customer orders.
+    """
+    return _passthrough(await _platform("GET", "/api/v1/partner/menu/next-number"))
+
+
 @app.put("/api/menu/add")
 async def api_menu_add(request: Request) -> JSONResponse:
     """Add a single dish (bulk-upsert of one item by pos_id)."""
@@ -899,7 +910,7 @@ function menuToolbar(){
     +'</div>'
     +'<div id="add-dish-form" class="hide" style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:16px">'
       +'<div style="display:grid;grid-template-columns:90px 1fr;gap:10px;max-width:520px;align-items:center">'
-      +'<label>Number</label><input id="ad-num" type="number" min="1" placeholder="e.g. 101">'
+      +'<label>Number</label><input id="ad-num" type="number" min="1" placeholder="auto">'
       +'<label>Name</label><input id="ad-name" placeholder="Dish name">'
       +'<label>Price (AED)</label><input id="ad-price" type="number" min="0" step="0.5" placeholder="e.g. 22">'
       +'<label>Category</label><input id="ad-cat" placeholder="e.g. Rice">'
@@ -940,7 +951,24 @@ async function genImage(){
     flash('Image generated ✅');
   }else{flash('Image failed: '+((b.detail)||('HTTP '+r.status)));}
 }
-function toggleAddDish(){document.getElementById('add-dish-form').classList.toggle('hide');}
+function toggleAddDish(){
+  const f=document.getElementById('add-dish-form');
+  f.classList.toggle('hide');
+  if(!f.classList.contains('hide'))fillNextNumber();
+}
+// Pre-fill the dish number with the next free one. The platform decides it: it counts
+// archived dishes and other menus, which /api/menu does not show — so a number worked
+// out here could collide with an old dish, and a dish number is how a customer orders.
+// Still editable; left blank the platform assigns one anyway.
+async function fillNextNumber(){
+  const el=document.getElementById('ad-num');
+  if(!el||el.value)return;
+  try{
+    const r=await fetch('/api/menu/next-number');
+    const j=await r.json();const b=j.body||j;
+    if(b&&b.next_number!=null)el.value=b.next_number;
+  }catch(e){/* leave blank — the platform still auto-assigns on save */}
+}
 async function saveDish(){
   const name=document.getElementById('ad-name').value.trim();
   const price=parseFloat(document.getElementById('ad-price').value);
