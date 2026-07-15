@@ -14,9 +14,12 @@ mirrors the platform's OPS dashboard layout — a left sidebar with tabs:
 The API key lives ONLY on this server; the browser talks to local /api/* proxy
 routes so the key is never exposed. Open GET / in a browser: that's the POS.
 
+The API key is NOT configured — it is earned at onboarding: the platform sends a
+``store.connected`` webhook carrying a single-use claim token, which this POS
+trades for its own key (see ``_onboard``). The key then lives only on this server.
+
 Env vars:
   POS_BASE_URL        platform API base (default the live Render deployment)
-  POS_API_KEY         X-API-Key for the store under test
   POS_WEBHOOK_SECRET  shared HMAC secret configured in the store's partner config
   PORT                injected by Render
 """
@@ -37,12 +40,13 @@ SECRET = os.environ.get("POS_WEBHOOK_SECRET", "")
 
 app = FastAPI(title="Temp POS", version="3.1")
 
-# The store's credentials, learned at ONBOARDING (store.connected webhook) and
-# seeded from env only as a fallback for a manually-configured store. A real POS
-# would persist this; in-memory is fine for a test rig (re-onboard after a spin-down).
+# The store's credentials, learned ONLY at onboarding (store.connected webhook).
+# There is deliberately NO env fallback: the key must be earned through the
+# onboarding handshake, never baked into config. A real POS would persist this;
+# in-memory is fine for a test rig (re-onboard after a spin-down).
 _store: dict = {
-    "api_key": os.environ.get("POS_API_KEY", ""),
-    "source": "env" if os.environ.get("POS_API_KEY") else None,
+    "api_key": "",
+    "source": None,
     "restaurant_id": None,
     "name": None,
     "phone": None,
