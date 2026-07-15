@@ -479,6 +479,29 @@ async def api_menu() -> JSONResponse:
     return _passthrough(await _platform("GET", "/api/v1/partner/menu/items"))
 
 
+@app.post("/api/menu/upload-image")
+async def api_menu_upload_image(request: Request) -> JSONResponse:
+    """Upload a REAL photo of a dish (parity with the ops upload button).
+
+    Generate-image only ever produces an AI impression of a dish; a restaurant that has
+    photographed its own food should be able to use that photo. Streams the multipart
+    straight through, so the API key stays server-side.
+    """
+    form = await request.form()
+    up = form.get("file")
+    if not hasattr(up, "read"):
+        return JSONResponse({"detail": "No file"}, status_code=422)
+    data = await up.read()
+    result = await _platform(
+        "POST",
+        "/api/v1/partner/menu/upload-image",
+        files={"file": (up.filename or "dish.jpg", data,
+                        up.content_type or "image/jpeg")},
+        timeout=60.0,
+    )
+    return _passthrough(result)
+
+
 @app.get("/api/menu/next-number")
 async def api_menu_next_number() -> JSONResponse:
     """The next free dish number, so Add-dish can pre-fill it.
@@ -913,10 +936,18 @@ function menuToolbar(){
       +'<label>Number</label><input id="ad-num" type="number" min="1" placeholder="auto">'
       +'<label>Name</label><input id="ad-name" placeholder="Dish name">'
       +'<label>Price (AED)</label><input id="ad-price" type="number" min="0" step="0.5" placeholder="e.g. 22">'
+      +'<label>Sale price</label><input id="ad-sale" type="number" min="0" step="0.5" placeholder="optional — shown struck-through on WhatsApp">'
+      +'<label>Serves</label><div>'
+        +'<div id="ad-variants"></div>'
+        +'<button class="act by" onclick="addVariant()">＋ Add serving size</button>'
+        +'<div class="muted" style="font-size:12px;margin-top:4px">optional, e.g. 1 serve AED 22 / 4 serve AED 60</div>'
+        +'</div>'
       +'<label>Category</label><input id="ad-cat" placeholder="e.g. Rice">'
       +'<label>Description</label><div style="display:flex;gap:6px"><input id="ad-desc" style="flex:1" placeholder="optional, max 3 lines">'
         +'<button class="act by" style="white-space:nowrap" onclick="suggestDesc()">✨ Suggest</button></div>'
-      +'<label>Image</label><div style="display:flex;gap:8px;align-items:center">'
+      +'<label>Image</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+        +'<button class="act by" onclick="document.getElementById(\'ad-imgfile\').click()">⬆ Upload photo</button>'
+        +'<input type="file" id="ad-imgfile" class="hide" accept="image/png,image/jpeg,image/webp" onchange="uploadImage(this)">'
         +'<button class="act by" onclick="genImage()">🖼 Generate image</button>'
         +'<img id="ad-imgprev" style="height:44px;border-radius:6px;display:none" />'
         +'<input type="hidden" id="ad-imgurl" /></div>'
@@ -969,6 +1000,46 @@ async function fillNextNumber(){
     if(b&&b.next_number!=null)el.value=b.next_number;
   }catch(e){/* leave blank — the platform still auto-assigns on save */}
 }
+// Serving sizes (1 serve / 4 serve). Rows are read straight off the DOM on save.
+function addVariant(name,price){
+  const wrap=document.getElementById('ad-variants');
+  const row=document.createElement('div');
+  row.className='ad-variant';
+  row.style.cssText='display:flex;gap:6px;margin-bottom:6px';
+  row.innerHTML='<input class="v-name" placeholder="e.g. 4 serve" style="flex:1" />'
+    +'<input class="v-price" type="number" min="0" step="0.5" placeholder="AED" style="width:90px" />'
+    +'<button class="act bd" onclick="this.parentNode.remove()">✕</button>';
+  if(name)row.querySelector('.v-name').value=name;
+  if(price!=null)row.querySelector('.v-price').value=price;
+  wrap.appendChild(row);
+}
+function readVariants(){
+  const out=[];
+  document.querySelectorAll('#ad-variants .ad-variant').forEach(function(r){
+    const n=r.querySelector('.v-name').value.trim();
+    const p=parseFloat(r.querySelector('.v-price').value);
+    if(n&&p>0)out.push({name:n,price:p});
+  });
+  return out;
+}
+// Upload a real photo. The platform enforces JPG/PNG/WebP + 5MB and stores it in
+// Postgres, so it survives a redeploy and Meta can fetch it as the product image.
+async function uploadImage(input){
+  if(!input.files||!input.files.length)return;
+  const fd=new FormData();fd.append('file',input.files[0]);
+  input.value='';
+  flash('Uploading photo…');
+  try{
+    const r=await fetch('/api/menu/upload-image',{method:'POST',body:fd});
+    const j=await r.json();const b=j.body||j;
+    if(r.ok&&b.url){
+      document.getElementById('ad-imgurl').value=b.url;
+      const prev=document.getElementById('ad-imgprev');
+      prev.src=b.url;prev.style.display='';
+      flash('Photo uploaded ✅');
+    }else{flash('Upload failed: '+((b.detail)||('HTTP '+r.status)));}
+  }catch(e){flash('Upload failed');}
+}
 async function saveDish(){
   const name=document.getElementById('ad-name').value.trim();
   const price=parseFloat(document.getElementById('ad-price').value);
@@ -980,6 +1051,9 @@ async function saveDish(){
   const cat=document.getElementById('ad-cat').value.trim();if(cat)item.category=cat;
   const desc=document.getElementById('ad-desc').value.trim();if(desc)item.description=desc;
   if(document.getElementById('ad-imgurl').value)item.image_url=document.getElementById('ad-imgurl').value;
+  const sale=parseFloat(document.getElementById('ad-sale').value);
+  if(sale>0)item.sale_price=sale;
+  const vars=readVariants();if(vars.length)item.variants=vars;
   flash('Saving…');
   const r=await fetch('/api/menu/add',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)});
   const j=await r.json();const b=j.body||j;
