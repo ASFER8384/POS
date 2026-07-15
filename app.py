@@ -44,23 +44,31 @@ app = FastAPI(title="Temp POS", version="3.1")
 # There is deliberately NO env fallback: the key must be earned through the
 # onboarding handshake, never baked into config. A real POS would persist this;
 # in-memory is fine for a test rig (re-onboard after a spin-down).
-_store: dict = {
-    "api_key": "",
-    "source": None,
-    "restaurant_id": None,
-    "name": None,
-    "phone": None,
-    "partner": None,
-    "pos_store_id": None,
-}
+#
+# MULTI-STORE: one POS partner serves MANY restaurants, each with its OWN key, so
+# this is keyed by restaurant_id — never a single slot (which would make each new
+# store.connected evict the previous store).
+#   restaurant_id -> {api_key, source, name, phone, partner, pos_store_id}
+_stores: dict[int, dict] = {}
 
-# order_id -> ticket dict. In-memory (resets on spin-down; fine for testing).
+# The store the UI is currently looking at (restaurant_id). Defaults to the most
+# recent onboard; the user switches it from the header dropdown.
+_active_id: int | None = None
+
+# order_id -> ticket dict (each carries restaurant_id so tickets stay per-store).
 _orders: dict[int, dict] = {}
 
 
+def _active_store() -> dict:
+    """The store the UI is acting as, or {} when none is onboarded."""
+    if _active_id is None:
+        return {}
+    return _stores.get(_active_id) or {}
+
+
 def _api_key() -> str:
-    """The key we currently hold for the store (onboarded or env-seeded)."""
-    return _store.get("api_key") or ""
+    """The key of the ACTIVE store — every platform call is made as that store."""
+    return _active_store().get("api_key") or ""
 
 
 def _verify(raw: bytes, header: str | None) -> bool:
@@ -95,10 +103,24 @@ async def _onboard(data: dict) -> None:
         for the real key, so the long-lived secret never sits in this server's request
         logs.
       * PUSH (legacy): the webhook carries ``api_key`` directly — just store it.
+
+    Each store is filed under its own ``restaurant_id``, so onboarding a second store
+    ADDS it rather than replacing the first. The newest onboard becomes the active one.
     """
-    for key in ("restaurant_id", "name", "phone", "partner", "pos_store_id"):
-        if data.get(key) is not None:
-            _store[key] = data.get(key)
+    def _remember(rid: int, api_key: str, source: str, src: dict) -> None:
+        # `global` must be declared HERE: this is its own scope, so without it the
+        # assignment below would just make a local and the active store never changes.
+        global _active_id
+        rec = _stores.setdefault(rid, {})
+        rec.update({"api_key": api_key, "source": source, "restaurant_id": rid})
+        for key in ("name", "phone", "partner", "pos_store_id"):
+            if src.get(key) is not None:
+                rec[key] = src.get(key)
+        _active_id = rid  # newest onboard becomes what the UI shows
+        print(f"onboarded via {source.upper()}: r{rid} {rec.get('name')} "
+              f"({len(_stores)} store(s) held)")
+
+    rid = data.get("restaurant_id")
 
     claim_token = data.get("claim_token")
     if claim_token:
@@ -109,22 +131,22 @@ async def _onboard(data: dict) -> None:
                 )
             if r.status_code == 200:
                 body = r.json()
-                _store["api_key"] = body.get("api_key", "")
-                _store["source"] = "claim"
-                for key in ("restaurant_id", "name", "phone", "partner", "pos_store_id"):
-                    if body.get(key) is not None:
-                        _store[key] = body.get(key)
-                print(f"onboarded via CLAIM: r{_store['restaurant_id']} {_store['name']}")
+                # The claim reply is authoritative for identity (and is where the key
+                # appears — the webhook never carried it).
+                _remember(
+                    int(body.get("restaurant_id") or rid),
+                    body.get("api_key", ""),
+                    "claim",
+                    {**data, **body},
+                )
             else:
                 print(f"claim FAILED {r.status_code}: {r.text[:200]}")
         except Exception as exc:  # noqa: BLE001
             print(f"claim ERROR: {exc}")
         return
 
-    if data.get("api_key"):
-        _store["api_key"] = data["api_key"]
-        _store["source"] = "push"
-        print(f"onboarded via PUSH: r{_store['restaurant_id']} {_store['name']}")
+    if data.get("api_key") and rid is not None:
+        _remember(int(rid), data["api_key"], "push", data)
 
 
 # ── Inbound platform webhooks (us <- platform) ───────────────────────────────
@@ -154,6 +176,11 @@ async def receive(request: Request) -> Response:
     if oid is not None:
         oid = int(oid)
         t = _orders.setdefault(oid, {"order_id": oid, "events": []})
+        # Stamp WHICH store this ticket belongs to, so a multi-store POS never shows
+        # one restaurant's orders under another. restaurant_id is the stable key;
+        # pos_store_id is the partner's own optional mirror and is often "".
+        if data.get("restaurant_id") is not None:
+            t["restaurant_id"] = int(data["restaurant_id"])
         t["events"].append(event)
         if event == "order.created":
             t.update(
@@ -235,7 +262,45 @@ async def pos_action(order_id: int, request: Request) -> JSONResponse:
 
 @app.get("/state")
 async def state() -> JSONResponse:
-    return JSONResponse({"orders": sorted(_orders.values(), key=lambda t: t["order_id"], reverse=True)})
+    """Webhook tickets for the ACTIVE store only — never another store's orders.
+    Legacy tickets with no restaurant_id (pre-multi-store) are shown as-is."""
+    mine = [
+        t for t in _orders.values()
+        if t.get("restaurant_id") in (None, _active_id)
+    ]
+    return JSONResponse({"orders": sorted(mine, key=lambda t: t["order_id"], reverse=True)})
+
+
+# ── Multi-store: which stores this POS holds, and which one we're acting as ───
+@app.get("/api/stores")
+async def api_stores() -> JSONResponse:
+    """Every store onboarded to this POS. Never returns any api_key — only a
+    non-secret prefix so an operator can tell which credential is in play."""
+    return JSONResponse({
+        "active_restaurant_id": _active_id,
+        "stores": [
+            {
+                "restaurant_id": rid,
+                "name": rec.get("name"),
+                "partner": rec.get("partner"),
+                "pos_store_id": rec.get("pos_store_id"),
+                "key_source": rec.get("source"),
+                "key_prefix": (rec.get("api_key") or "")[:14] or None,
+                "active": rid == _active_id,
+            }
+            for rid, rec in sorted(_stores.items())
+        ],
+    })
+
+
+@app.post("/api/stores/{restaurant_id}/select")
+async def api_select_store(restaurant_id: int) -> JSONResponse:
+    """Switch which store the POS is acting as (its key is used for every call)."""
+    global _active_id
+    if restaurant_id not in _stores:
+        return JSONResponse({"error": "store not onboarded here"}, status_code=404)
+    _active_id = restaurant_id
+    return JSONResponse({"ok": True, "active_restaurant_id": _active_id})
 
 
 # ── Proxy routes so the browser never sees the API key ───────────────────────
@@ -395,20 +460,40 @@ async def api_patch_settings(request: Request) -> JSONResponse:
 
 @app.get("/health")
 async def health() -> dict:
+    active = _active_store()
     return {
         "ok": True,
         "base_url": BASE_URL,
         "api_key_set": bool(_api_key()),
         "secret_set": bool(SECRET),
-        # How we got the key: "claim" (onboarded, enterprise pull), "push" (legacy
-        # webhook), "env" (manually configured), or null (not onboarded yet).
-        "key_source": _store.get("source"),
+        # How we got the ACTIVE store's key: "claim" (enterprise pull — the webhook
+        # carried a token we traded for the key), "push" (legacy — key came in the
+        # webhook body), or null (not onboarded yet).
+        "key_source": active.get("source"),
+        # Non-secret fragment of the active key, so an operator can tell WHICH
+        # credential is in play and match it to key_prefix in the platform DB. The
+        # key itself is never returned.
+        "key_prefix": (active.get("api_key") or "")[:14] or None,
+        # The store we are acting as right now.
         "store": {
-            "restaurant_id": _store.get("restaurant_id"),
-            "name": _store.get("name"),
-            "partner": _store.get("partner"),
-            "pos_store_id": _store.get("pos_store_id"),
+            "restaurant_id": active.get("restaurant_id"),
+            "name": active.get("name"),
+            "partner": active.get("partner"),
+            "pos_store_id": active.get("pos_store_id"),
         },
+        # MULTI-STORE: every store onboarded here. One POS serves many restaurants,
+        # each with its own key — see GET /api/stores to switch.
+        "stores_held": len(_stores),
+        "stores": [
+            {
+                "restaurant_id": rid,
+                "name": rec.get("name"),
+                "key_source": rec.get("source"),
+                "key_prefix": (rec.get("api_key") or "")[:14] or None,
+                "active": rid == _active_id,
+            }
+            for rid, rec in sorted(_stores.items())
+        ],
     }
 
 
