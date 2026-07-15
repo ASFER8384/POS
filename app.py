@@ -33,13 +33,30 @@ from fastapi.responses import HTMLResponse, JSONResponse
 BASE_URL = os.environ.get(
     "POS_BASE_URL", "https://restaurant-whatsapp-service.onrender.com"
 ).rstrip("/")
-API_KEY = os.environ.get("POS_API_KEY", "")
 SECRET = os.environ.get("POS_WEBHOOK_SECRET", "")
 
-app = FastAPI(title="Temp POS", version="3.0")
+app = FastAPI(title="Temp POS", version="3.1")
+
+# The store's credentials, learned at ONBOARDING (store.connected webhook) and
+# seeded from env only as a fallback for a manually-configured store. A real POS
+# would persist this; in-memory is fine for a test rig (re-onboard after a spin-down).
+_store: dict = {
+    "api_key": os.environ.get("POS_API_KEY", ""),
+    "source": "env" if os.environ.get("POS_API_KEY") else None,
+    "restaurant_id": None,
+    "name": None,
+    "phone": None,
+    "partner": None,
+    "pos_store_id": None,
+}
 
 # order_id -> ticket dict. In-memory (resets on spin-down; fine for testing).
 _orders: dict[int, dict] = {}
+
+
+def _api_key() -> str:
+    """The key we currently hold for the store (onboarded or env-seeded)."""
+    return _store.get("api_key") or ""
 
 
 def _verify(raw: bytes, header: str | None) -> bool:
@@ -53,7 +70,7 @@ def _verify(raw: bytes, header: str | None) -> bool:
 
 async def _platform(method: str, path: str, **kw) -> httpx.Response:
     """Call the platform API as the POS (X-API-Key)."""
-    headers = {"X-API-Key": API_KEY}
+    headers = {"X-API-Key": _api_key()}
     async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
         return await c.request(method, path, headers=headers, **kw)
 
@@ -62,6 +79,48 @@ def _passthrough(r: httpx.Response) -> JSONResponse:
     ct = r.headers.get("content-type", "")
     body = r.json() if ct.startswith("application/json") else {"raw": r.text}
     return JSONResponse(body, status_code=r.status_code)
+
+
+async def _onboard(data: dict) -> None:
+    """Handle a ``store.connected`` event — learn the store + get our API key.
+
+    Two delivery styles, both supported:
+
+      * CLAIM (preferred/enterprise): the webhook carries a short-lived, single-use
+        ``claim_token`` and NOT the key. We trade it once at POST /api/v1/partner/claim
+        for the real key, so the long-lived secret never sits in this server's request
+        logs.
+      * PUSH (legacy): the webhook carries ``api_key`` directly — just store it.
+    """
+    for key in ("restaurant_id", "name", "phone", "partner", "pos_store_id"):
+        if data.get(key) is not None:
+            _store[key] = data.get(key)
+
+    claim_token = data.get("claim_token")
+    if claim_token:
+        try:
+            async with httpx.AsyncClient(base_url=BASE_URL, timeout=30.0) as c:
+                r = await c.post(
+                    "/api/v1/partner/claim", json={"claim_token": claim_token}
+                )
+            if r.status_code == 200:
+                body = r.json()
+                _store["api_key"] = body.get("api_key", "")
+                _store["source"] = "claim"
+                for key in ("restaurant_id", "name", "phone", "partner", "pos_store_id"):
+                    if body.get(key) is not None:
+                        _store[key] = body.get(key)
+                print(f"onboarded via CLAIM: r{_store['restaurant_id']} {_store['name']}")
+            else:
+                print(f"claim FAILED {r.status_code}: {r.text[:200]}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"claim ERROR: {exc}")
+        return
+
+    if data.get("api_key"):
+        _store["api_key"] = data["api_key"]
+        _store["source"] = "push"
+        print(f"onboarded via PUSH: r{_store['restaurant_id']} {_store['name']}")
 
 
 # ── Inbound platform webhooks (us <- platform) ───────────────────────────────
@@ -81,6 +140,11 @@ async def receive(request: Request) -> Response:
     print(f"received {event} hmac_ok={ok}")
     if not ok:
         return Response(status_code=401, content="bad signature")
+
+    # ── ONBOARDING: the platform is handing us this store ────────────────────
+    if event == "store.connected":
+        await _onboard(data)
+        return Response(status_code=200, content="ok")
 
     oid = data.get("order_id")
     if oid is not None:
@@ -136,8 +200,11 @@ async def receive(request: Request) -> Response:
 # ── Order actions (us -> platform) ───────────────────────────────────────────
 @app.post("/pos/{order_id}/action")
 async def pos_action(order_id: int, request: Request) -> JSONResponse:
-    if not API_KEY:
-        return JSONResponse({"error": "POS_API_KEY not set"}, status_code=400)
+    if not _api_key():
+        return JSONResponse(
+            {"error": "no API key — store not onboarded yet (awaiting store.connected)"},
+            status_code=400,
+        )
     body = await request.json()
     action = body.get("action")
     if action == "ack":
@@ -324,7 +391,21 @@ async def api_patch_settings(request: Request) -> JSONResponse:
 
 @app.get("/health")
 async def health() -> dict:
-    return {"ok": True, "base_url": BASE_URL, "api_key_set": bool(API_KEY), "secret_set": bool(SECRET)}
+    return {
+        "ok": True,
+        "base_url": BASE_URL,
+        "api_key_set": bool(_api_key()),
+        "secret_set": bool(SECRET),
+        # How we got the key: "claim" (onboarded, enterprise pull), "push" (legacy
+        # webhook), "env" (manually configured), or null (not onboarded yet).
+        "key_source": _store.get("source"),
+        "store": {
+            "restaurant_id": _store.get("restaurant_id"),
+            "name": _store.get("name"),
+            "partner": _store.get("partner"),
+            "pos_store_id": _store.get("pos_store_id"),
+        },
+    }
 
 
 @app.get("/", response_class=HTMLResponse)
