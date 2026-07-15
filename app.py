@@ -21,6 +21,8 @@ trades for its own key (see ``_onboard``). The key then lives only on this serve
 Env vars:
   POS_BASE_URL        platform API base (default the live Render deployment)
   POS_WEBHOOK_SECRET  shared HMAC secret configured in the store's partner config
+  DATABASE_URL        our OWN Postgres — where onboarded stores + their keys are kept
+                      so a restart/redeploy doesn't lose them. Absent = memory only.
   PORT                injected by Render
 """
 from __future__ import annotations
@@ -28,7 +30,9 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import ssl
 
+import asyncpg
 import httpx
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -37,18 +41,21 @@ BASE_URL = os.environ.get(
     "POS_BASE_URL", "https://restaurant-whatsapp-service.onrender.com"
 ).rstrip("/")
 SECRET = os.environ.get("POS_WEBHOOK_SECRET", "")
+# Our OWN database — where this POS keeps the stores it has onboarded and their keys,
+# so a restart/redeploy never loses them. Absent → memory-only (local dev).
+DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
 
-app = FastAPI(title="Temp POS", version="3.1")
+app = FastAPI(title="Temp POS", version="4.0")
 
-# The store's credentials, learned ONLY at onboarding (store.connected webhook).
-# There is deliberately NO env fallback: the key must be earned through the
-# onboarding handshake, never baked into config. A real POS would persist this;
-# in-memory is fine for a test rig (re-onboard after a spin-down).
+# The stores' credentials, learned ONLY at onboarding (store.connected webhook).
+# There is deliberately NO env fallback: a key must be earned through the onboarding
+# handshake, never baked into config.
 #
 # MULTI-STORE: one POS partner serves MANY restaurants, each with its OWN key, so
 # this is keyed by restaurant_id — never a single slot (which would make each new
 # store.connected evict the previous store).
 #   restaurant_id -> {api_key, source, name, phone, partner, pos_store_id}
+# This is a read-through CACHE of the `stores` table; the DB is the source of truth.
 _stores: dict[int, dict] = {}
 
 # The store the UI is currently looking at (restaurant_id). Defaults to the most
@@ -57,6 +64,106 @@ _active_id: int | None = None
 
 # order_id -> ticket dict (each carries restaurant_id so tickets stay per-store).
 _orders: dict[int, dict] = {}
+
+
+# ── Our own database: where onboarded stores + their keys live ───────────────
+# A real POS keeps its credentials in its OWN store, so a restart/redeploy never
+# loses them. (The backend is our choice alone — the platform contract says nothing
+# about storage; any partner may use MySQL/Mongo/a vault instead.)
+_pool: asyncpg.Pool | None = None
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS stores (
+    restaurant_id BIGINT PRIMARY KEY,
+    api_key       TEXT NOT NULL,
+    key_source    TEXT,
+    name          TEXT,
+    phone         TEXT,
+    partner       TEXT,
+    pos_store_id  TEXT,
+    onboarded_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+"""
+
+
+async def _db_connect() -> None:
+    """Open the pool + ensure the schema. No DATABASE_URL → memory-only (local dev).
+
+    Tries SSL first (Render's Postgres requires it), then falls back to plaintext (a
+    local/docker Postgres refuses the SSL upgrade), so the same code runs in both.
+    """
+    global _pool
+    if not DATABASE_URL:
+        print("no DATABASE_URL — keys will live in memory only (lost on restart)")
+        return
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    last: Exception | None = None
+    for mode, ssl_arg in (("ssl", ctx), ("plaintext", None)):
+        try:
+            _pool = await asyncpg.create_pool(
+                DATABASE_URL, ssl=ssl_arg, min_size=1, max_size=5
+            )
+            print(f"db connected ({mode})")
+            break
+        except Exception as exc:  # noqa: BLE001 — try the other transport
+            last = exc
+    if _pool is None:
+        raise last or RuntimeError("could not connect to the database")
+    async with _pool.acquire() as c:
+        await c.execute(_SCHEMA)
+
+
+async def _db_save_store(rec: dict) -> None:
+    """Persist one onboarded store (upsert — re-onboarding replaces its key)."""
+    if _pool is None:
+        return
+    async with _pool.acquire() as c:
+        await c.execute(
+            """INSERT INTO stores (restaurant_id, api_key, key_source, name, phone,
+                                   partner, pos_store_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)
+               ON CONFLICT (restaurant_id) DO UPDATE SET
+                   api_key=EXCLUDED.api_key, key_source=EXCLUDED.key_source,
+                   name=EXCLUDED.name, phone=EXCLUDED.phone,
+                   partner=EXCLUDED.partner, pos_store_id=EXCLUDED.pos_store_id,
+                   onboarded_at=now()""",
+            int(rec["restaurant_id"]), rec.get("api_key") or "", rec.get("source"),
+            rec.get("name"), rec.get("phone"), rec.get("partner"), rec.get("pos_store_id"),
+        )
+
+
+async def _db_load_stores() -> None:
+    """Repopulate the in-memory cache from the DB at startup — this is what makes a
+    restart survivable: we come back already onboarded."""
+    global _active_id
+    if _pool is None:
+        return
+    async with _pool.acquire() as c:
+        rows = await c.fetch("SELECT * FROM stores ORDER BY onboarded_at")
+    for r in rows:
+        _stores[r["restaurant_id"]] = {
+            "restaurant_id": r["restaurant_id"],
+            "api_key": r["api_key"],
+            "source": r["key_source"],
+            "name": r["name"],
+            "phone": r["phone"],
+            "partner": r["partner"],
+            "pos_store_id": r["pos_store_id"],
+        }
+    if _stores and _active_id is None:
+        _active_id = list(_stores)[-1]  # most recently onboarded
+    print(f"loaded {len(_stores)} store(s) from db; active=r{_active_id}")
+
+
+@app.on_event("startup")
+async def _startup() -> None:
+    try:
+        await _db_connect()
+        await _db_load_stores()
+    except Exception as exc:  # noqa: BLE001 — never block boot on the db
+        print(f"db init failed ({exc}) — continuing in memory-only mode")
 
 
 def _active_store() -> dict:
@@ -107,7 +214,7 @@ async def _onboard(data: dict) -> None:
     Each store is filed under its own ``restaurant_id``, so onboarding a second store
     ADDS it rather than replacing the first. The newest onboard becomes the active one.
     """
-    def _remember(rid: int, api_key: str, source: str, src: dict) -> None:
+    async def _remember(rid: int, api_key: str, source: str, src: dict) -> None:
         # `global` must be declared HERE: this is its own scope, so without it the
         # assignment below would just make a local and the active store never changes.
         global _active_id
@@ -117,8 +224,15 @@ async def _onboard(data: dict) -> None:
             if src.get(key) is not None:
                 rec[key] = src.get(key)
         _active_id = rid  # newest onboard becomes what the UI shows
+        # Persist it — this is what makes the onboarding survive a restart. Best-effort:
+        # a db hiccup must not lose the store we just claimed (it stays in memory).
+        try:
+            await _db_save_store(rec)
+            where = "db" if _pool is not None else "memory (no db)"
+        except Exception as exc:  # noqa: BLE001
+            where = f"memory only — db save FAILED: {exc}"
         print(f"onboarded via {source.upper()}: r{rid} {rec.get('name')} "
-              f"({len(_stores)} store(s) held)")
+              f"({len(_stores)} store(s) held) -> saved to {where}")
 
     rid = data.get("restaurant_id")
 
@@ -133,7 +247,7 @@ async def _onboard(data: dict) -> None:
                 body = r.json()
                 # The claim reply is authoritative for identity (and is where the key
                 # appears — the webhook never carried it).
-                _remember(
+                await _remember(
                     int(body.get("restaurant_id") or rid),
                     body.get("api_key", ""),
                     "claim",
@@ -146,7 +260,7 @@ async def _onboard(data: dict) -> None:
         return
 
     if data.get("api_key") and rid is not None:
-        _remember(int(rid), data["api_key"], "push", data)
+        await _remember(int(rid), data["api_key"], "push", data)
 
 
 # ── Inbound platform webhooks (us <- platform) ───────────────────────────────
@@ -466,6 +580,9 @@ async def health() -> dict:
         "base_url": BASE_URL,
         "api_key_set": bool(_api_key()),
         "secret_set": bool(SECRET),
+        # Where onboarded stores live. "db" = persisted (survives restart);
+        # "memory" = no DATABASE_URL, so a restart loses every key.
+        "storage": "db" if _pool is not None else "memory",
         # How we got the ACTIVE store's key: "claim" (enterprise pull — the webhook
         # carried a token we traded for the key), "push" (legacy — key came in the
         # webhook body), or null (not onboarded yet).

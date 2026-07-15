@@ -8,9 +8,13 @@ services:
     envVars:
       - key: POS_BASE_URL
         value: https://restaurant-whatsapp-service.onrender.com
-      - key: POS_API_KEY
-        sync: false          # set in the Render dashboard after minting the key
+      # No POS_API_KEY: a key is never configured. This POS earns one per store via the
+      # onboarding handshake (store.connected -> claim token -> POST /partner/claim).
       - key: POS_WEBHOOK_SECRET
         sync: false          # set in the Render dashboard (same secret as the store)
+      # Where onboarded stores + their keys are persisted, so a restart/redeploy does
+      # not lose them (a real POS keeps its credentials in its own database).
+      - key: DATABASE_URL
+        sync: false          # paste the Render Postgres Internal Database URL here
       - key: POS_AUTO_ADVANCE
         value: "true"
