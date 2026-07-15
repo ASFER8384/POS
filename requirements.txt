@@ -2,3 +2,7 @@ fastapi==0.115.6
 uvicorn[standard]==0.34.0
 httpx==0.28.1
 asyncpg==0.30.0
+# Required by request.form(): Starlette asserts on it and a missing install shows up
+# as a bare 500, not an import error. Every multipart route needs it — the dish-photo
+# upload and the AI menu upload both parse forms.
+python-multipart==0.0.32
