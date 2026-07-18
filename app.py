@@ -65,6 +65,13 @@ _active_id: int | None = None
 # order_id -> ticket dict (each carries restaurant_id so tickets stay per-store).
 _orders: dict[int, dict] = {}
 
+# Monotonic counter for the POS ids we mint back to the platform in the Cratis
+# order-push HANDSHAKE (posOrderId / posReceiptId). Cratis returns its own internal
+# ids on a successful /pos/orders/ POST; we imitate that so the end-to-end push +
+# handshake can be exercised against this fake POS. In-memory only (a redeploy
+# restarts the sequence — fine for a sandbox).
+_pos_seq: dict[str, int] = {"n": 1000}
+
 
 # ── Our own database: where onboarded stores + their keys live ───────────────
 # A real POS keeps its credentials in its OWN store, so a restart/redeploy never
@@ -340,6 +347,95 @@ async def receive(request: Request) -> Response:
             if st:
                 t["status"] = st
     return Response(status_code=200, content="ok")
+
+
+# ── Cratis mode: bare order push + handshake (us AS the Cratis POS) ───────────
+def _minor_to_major(v) -> float | None:
+    """Cratis money is integer minor units (× 100); show it in major units."""
+    try:
+        return round(int(v) / 100, 2)
+    except (TypeError, ValueError):
+        return None
+
+
+@app.post("/pos/orders/")
+@app.post("/pos/orders")
+async def cratis_order_push(request: Request) -> JSONResponse:
+    """Receive one order in CRATIS's shape and answer the handshake.
+
+    Unlike ``/hooks/whatsapp`` (our envelope: ``{event, data}`` + ``X-Partner-Event``),
+    Cratis posts the order object at the TOP LEVEL (no envelope). On success Cratis
+    replies ``200 {status:"success", posOrderId, posReceiptId}`` — and ONLY that body
+    confirms the order landed. We mint those ids and echo them, so the platform's
+    handshake parser has something to correlate kitchen status against.
+
+    The platform still HMAC-signs the push (``X-Partner-Signature``) with the store
+    secret, so we verify it exactly like the envelope path. A bad signature → 401
+    (the platform marks the delivery dead); a good one → the success handshake.
+    """
+    raw = await request.body()
+    if not _verify(raw, request.headers.get("X-Partner-Signature")):
+        print("cratis push: bad signature -> 401")
+        return JSONResponse({"status": "error", "reason": "bad signature"}, status_code=401)
+    try:
+        order = await request.json()
+    except Exception:  # noqa: BLE001
+        order = {}
+    if not isinstance(order, dict):
+        return JSONResponse({"status": "error", "reason": "bad body"}, status_code=400)
+
+    # channelOrderId is our platform order id (build_cratis_order sends str(order.id)).
+    try:
+        oid = int(order.get("channelOrderId") or order.get("channelOrderRawId"))
+    except (TypeError, ValueError):
+        oid = None
+
+    # Mint the POS ids we hand back — this is the whole point of the handshake.
+    _pos_seq["n"] += 1
+    pos_order_id = _pos_seq["n"]
+    pos_receipt_id = 900000 + _pos_seq["n"]
+
+    if oid is not None:
+        cust = order.get("customer") or {}
+        pay = order.get("payment") or {}
+        addr = order.get("deliveryAddress") or {}
+        t = _orders.setdefault(oid, {"order_id": oid, "events": []})
+        t["events"].append("order.created")
+        # Cratis carries no restaurant_id (it routes by account/location), so the
+        # ticket stays store-agnostic (shown as legacy on the board's per-store filter).
+        t.update(
+            {
+                "order_number": order.get("channelOrderDisplayId"),
+                "status": "confirmed",
+                "source": "cratis",
+                "customer": {"name": cust.get("name"), "phone": cust.get("phoneNumber")},
+                "items": [
+                    {
+                        "name": i.get("name"),
+                        "plu": i.get("plu"),
+                        "qty": i.get("quantity"),
+                        "price": _minor_to_major(i.get("price")),
+                    }
+                    for i in (order.get("items") or [])
+                ],
+                "total": _minor_to_major(pay.get("amount")),
+                "cod_due": _minor_to_major(pay.get("due")),
+                "address": {
+                    "street": addr.get("street"),
+                    "extra": addr.get("extraAddressInfo"),
+                },
+                "pos_order_id": pos_order_id,
+                "pos_receipt_id": pos_receipt_id,
+                "rider": None,
+                "delivery_status": None,
+                "cod_collected": None,
+                "late": False,
+            }
+        )
+    print(f"cratis push: order={oid} -> posOrderId={pos_order_id} posReceiptId={pos_receipt_id}")
+    return JSONResponse(
+        {"status": "success", "posOrderId": pos_order_id, "posReceiptId": pos_receipt_id}
+    )
 
 
 # ── Order actions (us -> platform) ───────────────────────────────────────────
